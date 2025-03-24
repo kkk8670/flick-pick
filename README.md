@@ -1,5 +1,23 @@
 # flick-pick
 
+## Shared data
+path: google drive - /5003-BigData/data
 
-- 如果python >= v3.12， 报错`No module named 'distutils'`，使用命令`pip install -U pip setuptools wheel`
-- 本地spark需要配置openjdk@17
+download or use it in colab:
+```
+from google.colab import drive
+drive.mount('/content/drive')
+!ls -1 /content/drive/MyDrive/5003-BigData/data
+```
+
+
+
+## Install Issue
+
+- If there is error `No module named 'distutils'`，when python >= v3.12, 
+run 
+	`pip install -U pip setuptools wheel`
+or 
+	`pip install packaging`
+
+- local Spark dependents on `openjdk@17`

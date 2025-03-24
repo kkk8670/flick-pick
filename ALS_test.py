@@ -43,7 +43,7 @@ def recommend_to(user_id):
     # recommendations = model.recommendForUserSubset(user_df, numItems=10)
 
     recommendations = recommendations.filter(col("userId") == user_id) 
-    recommendations.show(5, truncate=False)  # show 前五条
+    recommendations.show(5, truncate=False)  # show 5
 
 
 
