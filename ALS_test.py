@@ -11,10 +11,10 @@ file_path = "./data/test/ratings.csv"
 
 
 # init
-spark = SparkSession \
-    .builder \
-    .appName("flick-pick") \
-    .config("spark.driver.bindAddress", "localhost") \
+spark = SparkSession 
+    .builder 
+    .appName("flick-pick") 
+    .config("spark.driver.bindAddress", "localhost") 
     .getOrCreate() 
 
 ratings = spark.read.csv(file_path, header=True, inferSchema=True)

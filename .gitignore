@@ -3,3 +3,5 @@
 *.zip
 *.txt
 data/
+*.json
+*.csv

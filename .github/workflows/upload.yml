@@ -1,0 +1,27 @@
+name: Upload Dataset to Google Drive
+
+on:
+  push:
+    branches:
+      - main  # only trigger in branch `main`
+  workflow_dispatch: # allow manmanual trigger  
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+       - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        run: |
+          echo "$RCLONE_CONFIG" > ~/.config/rclone/rclone.conf
+
+      - name: Upload Dataset to Google Drive
+        run: |
+          rclone sync ./data gdrive:data/ --progress --update
