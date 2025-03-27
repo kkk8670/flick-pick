@@ -23,13 +23,13 @@ ratings = ratings.select(col("userId"), col("movieId"), col("rating"))
 
 # training
 als = ALS(
-    rank=5,        # default rank=10
-    maxIter=5,      # default 迭代次数=10   
-    regParam=0.1,     # default 正则化参数=0.1   
+    rank=5,        # default  10
+    maxIter=5,      # default   10   
+    regParam=0.1,     # default 0.1   
     userCol="userId",
     itemCol="movieId",
     ratingCol="rating",
-    coldStartStrategy="drop"  # 解决新用户/电影数据稀疏问题
+    coldStartStrategy="drop"   
 )
 
 # 拟合
