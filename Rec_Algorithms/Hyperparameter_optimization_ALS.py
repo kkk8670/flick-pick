@@ -8,7 +8,6 @@ from pyspark.ml.feature import HashingTF, IDF, Tokenizer
 from pyspark.ml import Pipeline
 from pyspark.sql.functions import collect_list, concat_ws
 
-
 # Set environment variables
 os.environ["HADOOP_HOME"] = "D:/download_app/hadoop"
 os.environ["SPARK_HOME"] = (
@@ -63,7 +62,6 @@ def build_base_als():
 def hyperparameter_optimization(ratings_df):
     """Perform hyperparameter tuning for the ALS model."""
     als = build_base_als()
-
     param_grid = (
         ParamGridBuilder()
         .addGrid(als.rank, [10, 20, 50])
@@ -71,104 +69,47 @@ def hyperparameter_optimization(ratings_df):
         .addGrid(als.regParam, [0.01, 0.1, 1.0])
         .build()
     )
-
-    evaluator = RegressionEvaluator(
-        metricName="rmse", labelCol="rating", predictionCol="prediction"
-    )
-    crossval = CrossValidator(
-        estimator=als, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=3
-    )
-
+    evaluator = RegressionEvaluator(metricName="rmse", labelCol="rating", predictionCol="prediction")
+    crossval = CrossValidator(estimator=als, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=3)
     cv_model = crossval.fit(ratings_df)
     return cv_model.bestModel
 
 
-def model_evaluation(model, test_data, evaluator):
-    """Evaluate the model using RMSE metric."""
-    predictions = model.transform(test_data)
-    return evaluator.evaluate(predictions)
-
-
-def train_and_evaluate_models(
-    train_data, test_data, movie_df, links_df, user_id, tags_df, best_als_model
-):
-    """Train and evaluate ALS models, then recommend movies for a given user."""
-    evaluation_results = []
-
-    base_als_model = build_base_als().fit(train_data)
-    evaluator = RegressionEvaluator(
-        metricName="rmse", labelCol="rating", predictionCol="prediction"
-    )
-    base_als_rmse = model_evaluation(base_als_model, test_data, evaluator)
-    evaluation_results.append(("Base ALS", base_als_rmse))
-
-    best_als_rmse = model_evaluation(best_als_model, test_data, evaluator)
-    evaluation_results.append(("Optimized ALS", best_als_rmse))
-
-    for model_name, rmse in evaluation_results:
-        print(f"{model_name} RMSE: {rmse}")
-
-    user_recommendations_als = best_als_model.recommendForUserSubset(
+def weighted_recommendations(user_id, best_als_model, movie_df, tags_df):
+    """Generate weighted recommendations combining ALS and content-based filtering."""
+    user_recommendations = best_als_model.recommendForUserSubset(
         spark.createDataFrame([(user_id,)], ["userId"]), 10
     )
-    user_rec_movies_als = user_recommendations_als.withColumn("rec", explode("recommendations")) \
+    user_rec_movies = user_recommendations.withColumn("rec", explode("recommendations")) \
         .select("userId", "rec.movieId", "rec.rating")
-
-    user_rec_with_titles_als = (
-        user_rec_movies_als.join(movie_df, "movieId", "inner")
-        .join(links_df, "movieId", "left")
-        .select("userId", "movieId", movie_df["title"].alias("movie_title"), "rating", "tmdbId")
-    )
 
     tokenizer = Tokenizer(inputCol="tags_str", outputCol="words")
     hashing_tf = HashingTF(inputCol="words", outputCol="rawFeatures")
     idf = IDF(inputCol="rawFeatures", outputCol="features")
-
     pipeline = Pipeline(stages=[tokenizer, hashing_tf, idf])
     tags_df_transformed = pipeline.fit(tags_df).transform(tags_df)
 
     user_tags_df = tags_df_transformed.join(movie_df, "movieId").select("movieId", "features")
     content_recommendations = (
-        user_tags_df.join(user_rec_with_titles_als, "movieId", "inner")
-        .select(
-            "movieId",
-            "movie_title",
-            user_rec_with_titles_als["rating"].alias("user_rating"),
-            "tmdbId",
-            "features",
-        )
-        .orderBy(desc("user_rating"))
+        user_tags_df.join(user_rec_movies, "movieId", "inner")
+        .select("movieId", "features", user_rec_movies["rating"].alias("als_rating"))
     )
 
-    print("Content-based recommendations:")
-    content_recommendations.show(truncate=False)
+    weighted_recommendations = content_recommendations.withColumn("final_score",
+                                                                  0.7 * col("als_rating") + 0.3 * col("features"))
+    weighted_recommendations = weighted_recommendations.orderBy(desc("final_score"))
 
-    user_rec_with_titles_als = user_rec_with_titles_als.alias("als")
-    content_recommendations = content_recommendations.alias("content")
-    final_recommendations = user_rec_with_titles_als.join(
-        content_recommendations, user_rec_with_titles_als["movieId"] == content_recommendations["movieId"], "outer"
-    ).select(
-        col("als.userId"),
-        col("als.movieId"),
-        col("als.movie_title").alias("als_movie_title"),
-        col("content.movie_title").alias("content_movie_title"),
-        col("als.tmdbId").alias("als_tmdbId"),
-        col("content.tmdbId").alias("content_tmdbId"),
-        col("als.rating"),
-    )
-
-    print("Final merged recommendations:")
-    final_recommendations.show(truncate=False)
+    print("Weighted Recommendations:")
+    weighted_recommendations.show(truncate=False)
 
 
 def main():
     """Main function to load data, train models, and save the best model."""
     ratings_df, movie_df, tags_df, links_df = load_data()
-    train_data, test_data = ratings_df.randomSplit([0.8, 0.2], seed=42)
-
+    train_data, _ = ratings_df.randomSplit([0.8, 0.2], seed=42)
     user_id = 1  # Example user ID
     best_model = hyperparameter_optimization(train_data)
-    train_and_evaluate_models(train_data, test_data, movie_df, links_df, user_id, tags_df, best_model)
+    weighted_recommendations(user_id, best_model, movie_df, tags_df)
 
     save_path = "E:/prepare/se_rec/model"
     os.makedirs(save_path, exist_ok=True)
