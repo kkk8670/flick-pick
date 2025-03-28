@@ -20,6 +20,6 @@ while True:
             if not i % batch_size:
             	producer.flush()
         	logging.info(f"Sent row {count}: {row}")
-            time.sleep(0.5)  #  （控制速率）
+            time.sleep(0.5)  #   
     
     logging.info("Finished one round, restarting...")

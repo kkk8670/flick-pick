@@ -14,4 +14,4 @@ for message in consumer:
     data = message.value
     print(f"Consumed data: {data}")
     
-    # 在这里可以将数据输入推荐系统或者进行其他实时分析
+    
