@@ -1,8 +1,11 @@
-.env
 .DS_Store
+.env
+*.local
 *.zip
 *.txt
 data/
-*.json
 *.csv
+!*.csv.dvc
+.secrets/
+*.json
 /data
