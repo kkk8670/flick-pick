@@ -3,9 +3,7 @@
 *.local
 *.zip
 *.txt
-data/
 *.csv
-!*.csv.dvc
+!*.dvc
 .secrets/
 *.json
-/data

@@ -1,0 +1,5 @@
+outs:
+- md5: a3769e65fb2fa472ce7ac6965594b0ee
+  size: 145363
+  hash: md5
+  path: for_visual_sample.csv
