@@ -3,9 +3,10 @@
 *.local
 *.zip
 *.txt
+.secrets/
+*.json
 data/
 *.csv
 !*.dvc
-.secrets/
-*.json
-/data
+!/data/.gitkeep
+.dvc/tmp/
