@@ -64,3 +64,11 @@ or
 	`pip install packaging`
 
 - local Spark dependents on `openjdk@17`
+
+### exception handling
+
+- If data is not synchronized after git push
+run
+	`dvc push -r gdrive`
+Check hook
+	`ls -la .git/hooks/post-commit`
