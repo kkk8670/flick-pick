@@ -46,8 +46,9 @@ dvc pull -r gdrive
 
 # work with code & data alteration
 
-# submit
-git add .
+# submit if data changed
+dvc add data
+git add data.dvc .gitignore
 git commit -m "xxx"
 git push  # push git will auto trigger dvc push
 ```
