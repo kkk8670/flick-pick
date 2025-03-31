@@ -1,9 +1,8 @@
 from kafka import KafkaConsumer
 import json
-
+from kafka_producer import topic, bootstrap_server 
  
-topic = 'flick-pick'
-bootstrap_server = ['localhost:9093']   
+  
  
 consumer = KafkaConsumer(topic,   
                          bootstrap_servers=bootstrap_server,

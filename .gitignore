@@ -3,6 +3,7 @@
 *.local
 *.zip
 *.txt
+*.log
 .secrets/
 *.json
 data/
