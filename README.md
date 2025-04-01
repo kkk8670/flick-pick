@@ -50,6 +50,7 @@ dvc pull -r gdrive
 dvc add data
 git add data.dvc .gitignore
 git commit -m "xxx"
+dvc push -r gdrive
 git push  # push git will auto trigger dvc push
 ```
 

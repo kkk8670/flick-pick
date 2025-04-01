@@ -1,3 +1,7 @@
+#!/usr/bin/env python
+# @Auther liukun
+# @Time 2025/03/26
+
 from pyspark.sql import SparkSession
 from pyspark.ml.recommendation import ALS
 from pyspark.sql.functions import col
