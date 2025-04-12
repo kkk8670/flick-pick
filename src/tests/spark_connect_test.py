@@ -34,6 +34,33 @@ def conn_databrick():
     # %run /Workspace/Shared/flick-pick/ALS_test
 
 
+# for cloudflare
+def conn_R2(folder=""):
+    import boto3
+    load_dotenv()
+
+    ACCESS_KEY = os.getenv("R2_ACCESS_KEY")
+    SECRET_KEY = os.getenv("R2_SECRET_KEY")
+    R2_ENDPOINT = os.getenv("R2_ENDPOINT")
+    BUCKET_NAME="movie-dataset"
+
+    session = boto3.session.Session()
+    s3 = session.client(
+        service_name="s3",
+        region_name="auto",
+        endpoint_url=R2_ENDPOINT,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY,
+    )
+    response = s3.list_objects_v2(Bucket=BUCKET_NAME, Prefix=folder)
+    if "Contents" in response:
+        for obj in response["Contents"]:
+            print(obj["Key"])
+    else:
+        print("No files found.")
+
+
 if __name__ == "__main__":
 
-    conn_local()
+    # conn_local()
+    conn_R2("test/")

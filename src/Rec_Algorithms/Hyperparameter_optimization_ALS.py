@@ -11,6 +11,9 @@ from pyspark.sql.functions import col, desc, explode, udf
 from pyspark.sql.types import DoubleType
 
 
+load_dotenv()
+ROOT_DIR = Path(os.getenv('ROOT_DIR'))
+
 # 环境变量配置
 def setup_environment():
     """配置并验证环境变量"""
@@ -52,12 +55,24 @@ def init_spark():
         .getOrCreate()
     )
 
+def init_spark_local():
+    return (
+        SparkSession
+        .builder 
+        .appName("flick-pick") 
+        .config("spark.driver.host", "localhost") 
+        .getOrCreate() 
+    )
+
 
 def load_data(spark):
     """加载评分、电影和标签数据集"""
+    rating_path = str(ROOT_DIR / "data-smallest/ratings.csv")
+    tags_path = str(ROOT_DIR / "data-smallest/tags.csv")
+    rating_movie_path = str(ROOT_DIR / "data-smallest/ratingMovie.csv")
     ratings_df = (
         spark.read.csv(
-            "../../data-smallest/ratings.csv",
+            rating_path,
             header=True,
             inferSchema=True
         )
@@ -69,7 +84,7 @@ def load_data(spark):
 
     movie_df = (
         spark.read.csv(
-            "../../data-smallest/ratingMovie.csv",
+            rating_movie_path,
             header=True,
             inferSchema=True
         )
@@ -78,7 +93,7 @@ def load_data(spark):
 
     tags_df = (
         spark.read.csv(
-            "../../data-smallest/tags.csv",
+            tags_path,
             header=True,
             inferSchema=True
         )
@@ -127,6 +142,7 @@ def hyperparameter_optimization(ratings_df):
     )
     model = als.fit(ratings_df)
     return model
+
 def cosine_similarity_udf(v1, v2):
     """计算余弦相似度"""
     v1 = np.array(v1)
@@ -198,19 +214,20 @@ def weighted_recommendations(user_id, best_als_model, movie_df, tags_df,
 
 def main():
     """主函数"""
-    setup_environment()
-    spark = init_spark()
+    # setup_environment()
+    spark = init_spark_local() #init_spark()
     spark.sparkContext.setLogLevel("ERROR")
 
     ratings_df, movie_df, tags_df = load_data(spark)
     train_data, _ = ratings_df.randomSplit([0.8, 0.2], seed=42)
     best_model = hyperparameter_optimization(train_data)
-    weighted_recommendations(1, best_model, movie_df, tags_df, ratings_df, spark)
+    # weighted_recommendations(1, best_model, movie_df, tags_df, ratings_df, spark)
 
     # Windows 下暂不保存模型，避免 Hadoop 路径/权限问题
     # save_path = "E:/prepare/se_rec/model"
     # os.makedirs(save_path, exist_ok=True)
-    # best_model.write().overwrite().save(save_path)
+    model_save = str( ROOT_DIR / "model")
+    best_model.write().overwrite().save(model_save)
 
     spark.stop()
 

@@ -1,3 +1,7 @@
+#!/usr/bin/env python
+# @Auther liukun
+# @Time 2025/04/01
+
 import json
 import logging
 from kafka import KafkaConsumer
