@@ -123,6 +123,25 @@ class R2Client:
                 except Exception as e:
                     print(f"Failed to upload {relative_path}:", e)
 
+    def delete_file(self, remote_path):
+        if not self.file_exists(remote_path):
+            print(f"Remote file '{remote_path}' does not exist. Cannot delete.")
+            return
+
+        self.client.delete_object(Bucket=self.bucket_name, Key=remote_path)
+        print(f"🗑️ Deleted remote file '{remote_path}' successfully.\n")
+
+    def delete_folder(self, prefix):
+        keys = self.list_folder(prefix)
+        if not keys:
+            print(f"📁 Folder '{prefix}' is empty or doesn't exist.")
+            return
+
+        for key in keys:
+            delete_file(key)
+
+        print(f"✅ Deleted all files under folder '{prefix}'")
+
 if __name__ == "__main__":
     r2 = R2Client()
     ROOT_DIR = Path(os.getenv('ROOT_DIR'))
@@ -141,12 +160,16 @@ if __name__ == "__main__":
     # print(df.head())
     # r2.upload_df_file(df, file_path)
 
+    # delete test
+    file_path = 'test/README.txt'
+    r2.delete_file(file_path)
+
     # list structure test
     r2_path =  "" # "test/"
     r2.list_folder(r2_path, 1)   
 
     # get file test 
-    r2_file = '/'.join([r2_path, "ratings.csv"])
-    print(r2_file)
-    df = r2.get_file(r2_file)
-    print(df.head())
+    # r2_file = '/'.join([r2_path, "ratings.csv"])
+    # print(r2_file)
+    # df = r2.get_file(r2_file)
+    # print(df.head())
