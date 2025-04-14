@@ -147,8 +147,9 @@ if __name__ == "__main__":
     ROOT_DIR = Path(os.getenv('ROOT_DIR'))
 
     # upload folder test
-    local_folder = str(ROOT_DIR / 'data/raw')
-    # r2.upload_folder(local_folder, "raw")
+    # local_folder = str(ROOT_DIR / 'data/raw')
+    # remote_folder = "raw"
+    # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
     # file_path = 'processed/for_visual_sample.csv'
@@ -161,8 +162,8 @@ if __name__ == "__main__":
     # r2.upload_df_file(df, file_path)
 
     # delete test
-    file_path = 'test/README.txt'
-    r2.delete_file(file_path)
+    # file_path = 'result/user_471_recommendation_and_history.csv'
+    # r2.delete_file(file_path)
 
     # list structure test
     r2_path =  "" # "test/"
