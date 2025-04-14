@@ -152,9 +152,9 @@ if __name__ == "__main__":
     # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
-    # file_path = 'processed/for_visual_sample.csv'
-    # local_file = '/'.join([str(ROOT_DIR), "data", file_path])
-    # r2.upload_local_file(local_file, file_path)
+    file_path = 'result/user_471_recommendation_and_history.csv'
+    local_file = '/'.join([str(ROOT_DIR), "data", file_path])
+    r2.upload_local_file(local_file, file_path)
 
     # upload pd test
     # df = pd.read_csv(local_file, index_col=0)
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     # r2.upload_df_file(df, file_path)
 
     # delete test
-    # file_path = 'result/user_471_recommendation_and_history.csv'
+    # file_path =  #'test/README.txt'
     # r2.delete_file(file_path)
 
     # list structure test

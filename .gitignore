@@ -12,4 +12,3 @@ data/
 !/data/.gitkeep
 .dvc/tmp/
 /data
-.env
