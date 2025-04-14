@@ -12,9 +12,10 @@ from pyspark.ml.recommendation import ALSModel
 
 load_dotenv()
 ROOT_DIR = Path(os.getenv('ROOT_DIR'))
-model_path = Path(os.getenv('ROOT_DIR')) / "models/als_model"  
-movie_path = Path(os.getenv('ROOT_DIR')) / "data/test/movies.csv"
-inpput_path = Path(os.getenv('ROOT_DIR')) / "data/streaming_input/"
+model_path = str(Path(os.getenv('ROOT_DIR')) / "models/als_model" ) 
+movie_path = str(Path(os.getenv('ROOT_DIR')) / "data/test/movies.csv")
+inpput_path = str(Path(os.getenv('ROOT_DIR')) / "data/streaming_input/")
+output_path = str(Path(os.getenv('ROOT_DIR')) / "data/output/streaming_recommend")
 
 spark = SparkSession.builder \
     .appName("flick-pick") \
@@ -35,6 +36,7 @@ rating_stream = (spark.readStream
  
 def process_batch(batch_df, batch_id):
     if batch_df.count() == 0:
+        print(f"[batch {batch_id}] empty, skipping.")
         return
 
     user_ids = [row["userId"] for row in batch_df.select("userId").distinct().collect()]
@@ -48,8 +50,8 @@ def process_batch(batch_df, batch_id):
     recs = recs.join(movies, on="movieId", how="left")
 
     # save as parquet  
-    recs.write.mode("overwrite").parquet("output/streaming_recommend.parquet")
-    print(f"[batch {batch_id}] ")
+    recs.coalesce(1).write.mode("overwrite").option("header", True).csv(output_path)
+    print(f"[batch {batch_id}] recommendations written.")
 
 
 def main():

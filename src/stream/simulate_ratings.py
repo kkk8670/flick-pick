@@ -16,16 +16,18 @@ DELAY = 3
 os.makedirs(stream_path, exist_ok=True)
 
 
-def create_user_ratings():
+def create_user_ratings(i):
     rating = {
         "userId": random.randint(1, 500),
-        "movieId": random.randint(1, 100000),
+        "movieId": random.randint(1, 10000),
         "rating": round(random.uniform(1.0, 5.0), 1),
         "timestamp": int(time.time())
     }
-    filename = f"{str(stream_path)}/rating_{int(time.time())}.json"
+    # filename = f"{str(stream_path)}/rating_{int(time.time())}.json"
+    filename = f"{str(stream_path)}/rating_{i % 10}.json"
     with open(filename, "w") as f:
         json.dump(rating, f)
+    i += 1
     print(f"写入评分：{rating}")
 
 
@@ -36,8 +38,9 @@ def clean_old_file():
             os.remove(old_file)
 
 def simulate_ratings():
+    i = 0
     while True:
-        create_user_ratings()
+        create_user_ratings(i)
         clean_old_file()
         time.sleep(DELAY)
 
@@ -65,5 +68,5 @@ def refresh_old_files():
 
 
 if __name__ == "__main__":
-    # simulate_ratings()
-    refresh_old_files()
+    simulate_ratings()
+    # refresh_old_files()
