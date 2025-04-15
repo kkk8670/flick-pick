@@ -14,6 +14,7 @@ from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator
 
 
+load_dotenv()
 ROOT_DIR = Path(os.getenv('ROOT_DIR'))
 
 def cosine_similarity_udf(v1, v2):
@@ -42,7 +43,6 @@ def cosine_similarity_udf(v1, v2):
 class Recommendation:
     def __init__(self):
 
-        load_dotenv()
         self.data_path = ROOT_DIR / "data"
         self.result_path = self.data_path / "result"
 
@@ -130,6 +130,7 @@ class Recommendation:
             )
             .withColumn("t_movieId", col("t_movieId").cast("int"))
         )
+        print("tags_df:", self.tags_df.head())
  
 
 
@@ -488,33 +489,33 @@ def main():
     # rc.setup_environment()
     rc.load_data()
     
-    train_ratings_df, _ = rc.ratings_df.randomSplit([0.8, 0.2], seed=42)
-    best_model = rc.hyperparameter_optimization(train_ratings_df)
+    # train_ratings_df, _ = rc.ratings_df.randomSplit([0.8, 0.2], seed=42)
+    # best_model = rc.hyperparameter_optimization(train_ratings_df)
 
-    user_ids = rc.ratings_df.select("userId").distinct().rdd.map(
-        lambda row: row["userId"]
-    ).collect()
+    # user_ids = rc.ratings_df.select("userId").distinct().rdd.map(
+    #     lambda row: row["userId"]
+    # ).collect()
 
-    print(f"Generating recommendations for {len(user_ids)} users...")
+    # print(f"Generating recommendations for {len(user_ids)} users...")
 
-    tags_df_transformed = None
-    for user_id in user_ids:
-        try:
-            tags_df_transformed = rc.weighted_recommendations(user_id, best_model)
-        except Exception as e:
-            print(f"⚠️ Recommendation failed for user {user_id}, skipping: {str(e)}")
-            continue
+    # tags_df_transformed = None
+    # for user_id in user_ids:
+    #     try:
+    #         tags_df_transformed = rc.weighted_recommendations(user_id, best_model)
+    #     except Exception as e:
+    #         print(f"⚠️ Recommendation failed for user {user_id}, skipping: {str(e)}")
+    #         continue
 
-    # Temporarily disable model saving on Windows to avoid Hadoop path issues
-    save_path = str(ROOT_DIR / "models/als_recommendation")
-    os.makedirs(save_path, exist_ok=True)
-    best_model.write().overwrite().save(save_path)
+    # # Temporarily disable model saving on Windows to avoid Hadoop path issues
+    # save_path = str(ROOT_DIR / "models/als_recommendation")
+    # os.makedirs(save_path, exist_ok=True)
+    # best_model.write().overwrite().save(save_path)
 
-    if tags_df_transformed:
-        rc.export_movie_similarity_network(tags_df_transformed)
-        rc.export_wordcloud_fields()
-    else:
-        print("⚠️ No successful recommendations generated, skipping exports")
+    # if tags_df_transformed:
+    #     rc.export_movie_similarity_network(tags_df_transformed)
+    #     rc.export_wordcloud_fields()
+    # else:
+    #     print("⚠️ No successful recommendations generated, skipping exports")
 
     rc.spark.stop()
 

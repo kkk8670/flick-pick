@@ -123,6 +123,17 @@ class R2Client:
                 except Exception as e:
                     print(f"Failed to upload {relative_path}:", e)
 
+
+    def download_file(self, remote_path, local_path):
+        try:
+            self.client.download_file(self.bucket_name, remote_path, local_path)
+            print(f"download {remote_path} to {local_path}")
+        except self.client.exceptions.NoSuchKey:
+            print(f"file {remote_path} not exits")
+        except Exception as e:
+            print(f"download file error: {e}")
+
+
     def delete_file(self, remote_path):
         if not self.file_exists(remote_path):
             print(f"Remote file '{remote_path}' does not exist. Cannot delete.")
@@ -144,16 +155,16 @@ class R2Client:
 
 if __name__ == "__main__":
     r2 = R2Client()
-    ROOT_DIR = Path(os.getenv('ROOT_DIR'))
+    data_path = Path(os.getenv('ROOT_DIR')) / "data"
 
     # upload folder test
-    # local_folder = str(ROOT_DIR / 'data/raw')
+    # local_folder = str(data_path / 'raw')
     # remote_folder = "raw"
     # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
-    file_path = 'result/user_471_recommendation_and_history.csv'
-    local_file = '/'.join([str(ROOT_DIR), "data", file_path])
+    file_path = 'processed/rating_movie.csv'
+    local_file = f"{str(data_path)}/{file_path}" 
     r2.upload_local_file(local_file, file_path)
 
     # upload pd test
@@ -162,7 +173,7 @@ if __name__ == "__main__":
     # r2.upload_df_file(df, file_path)
 
     # delete test
-    # file_path =  #'test/README.txt'
+    # file_path =  'processed/ratingMovie.csv'
     # r2.delete_file(file_path)
 
     # list structure test
@@ -170,7 +181,11 @@ if __name__ == "__main__":
     r2.list_folder(r2_path, 1)   
 
     # get file test 
-    # r2_file = '/'.join([r2_path, "ratings.csv"])
+    # r2_file = f"/processed/for_visual_sample.csv" 
     # print(r2_file)
     # df = r2.get_file(r2_file)
     # print(df.head())
+
+    # download file test
+    # file = "raw/ml-latest-small/tags.csv"
+    # r2.download_file(file, f"{str(data_path)}/{file}")
