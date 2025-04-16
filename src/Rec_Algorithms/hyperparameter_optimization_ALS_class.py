@@ -12,6 +12,7 @@ from pyspark.sql.types import DoubleType
 from pyspark.ml.tuning import ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator
+from pyspark.ml.recommendation import ALSModel
 
 
 load_dotenv()
@@ -44,7 +45,8 @@ class Recommendation:
     def __init__(self):
 
         self.data_path = ROOT_DIR / "data"
-        self.result_path = self.data_path / "result"
+        self.processed_path = str(self.data_path / "processed")
+        self.result_path = str(self.data_path / "result")
 
         self.spark = (SparkSession.builder
                         .appName("MovieRecommendation")
@@ -90,12 +92,12 @@ class Recommendation:
     def load_data(self):
         """Load ratings, movie, and tag datasets."""
         # Note: Preserving timestamp field if needed
-        rating_path = str(ROOT_DIR / "data-smallest/ratings.csv")
-        rating_movie_path = str(ROOT_DIR / "data-smallest/ratingMovie.csv")
-        tags_path = str(ROOT_DIR / "data-smallest/tags.csv")
+        ratings = "clean_ratings.csv"
+        tags = "extra_tags.csv"
+        rating_movie = "rating_movie.csv"
 
         self.ratings_df = (
-            self.spark.read.csv(rating_path, header=True, inferSchema=True)
+            self.spark.read.csv(f"{self.processed_path}/{ratings}", header=True, inferSchema=True)
             .select("userId", "movieId", "rating","timestamp")
             .withColumn("userId", col("userId").cast("int"))
             .withColumn("movieId", col("movieId").cast("int"))
@@ -105,7 +107,7 @@ class Recommendation:
 
         # Load movie data with standardized column prefixes
         self.movie_df = (
-            self.spark.read.csv(rating_movie_path,
+            self.spark.read.csv(f"{self.processed_path}/{rating_movie}",
                            header=True,
                            inferSchema=True)
             .select(
@@ -121,7 +123,7 @@ class Recommendation:
 
         # Load tag data with standardized column prefixes
         self.tags_df = (
-            self.spark.read.csv(tags_path,
+            self.spark.read.csv(f"{self.processed_path}/{tags}",
                            header=True,
                            inferSchema=True)
             .select(
@@ -130,8 +132,7 @@ class Recommendation:
             )
             .withColumn("t_movieId", col("t_movieId").cast("int"))
         )
-        print("tags_df:", self.tags_df.head())
- 
+
 
 
     def build_base_als(self):
@@ -141,9 +142,9 @@ class Recommendation:
             itemCol="movieId",
             ratingCol="rating",
             coldStartStrategy="drop",
-            rank=10,  # Base value, will be overridden by ParamGridBuilder
-            maxIter=10,  # Base value, will be overridden by ParamGridBuilder
-            regParam=0.1  # Base value, will be overridden by ParamGridBuilder
+            rank=10,  
+            maxIter=10,   
+            regParam=0.1   
         )
 
 
@@ -159,6 +160,7 @@ class Recommendation:
         """
         # Cache data for faster repeated access
         train_ratings_df.cache()
+        print(train_ratings_df.head())
 
         als = self.build_base_als()
         param_grid = (
@@ -191,8 +193,24 @@ class Recommendation:
         return cv_model.bestModel
 
 
+    def get_model(self, force_train=False):
+
+        model_path = str(ROOT_DIR / "models/als_recommendation")
+
+        if os.path.exists(model_path) and not force_train:
+            print("Loading existing model")
+            best_model = ALSModel.load(model_path)
+        else:
+            print("training new model")
+            train_ratings_df, _ = self.ratings_df.randomSplit([0.8, 0.2], seed=42)
+            best_model = self.hyperparameter_optimization(train_ratings_df)
+            best_model.write().overwrite().save(model_path)
+
+        return best_model
+
+
     def get_ALS_recommendations(self, best_als_model, user_id):
-        # Step 1: Get ALS recommendations
+        # Step 1: Get ALS reçcommendations
         user_recs = best_als_model.recommendForUserSubset(
                 self.spark.createDataFrame([(user_id,)], ["userId"]),
                 100
@@ -210,7 +228,8 @@ class Recommendation:
 
     def get_content_feature_matrix(self):
         # Step 2: Build content feature matrix
-        print("🔨 Building movie content feature matrix...")
+        print("Building movie content feature matrix...")
+
         movie_tags_enriched = self.tags_df.alias("tags").join(
             self.movie_df.alias("movies"),
             col("tags.t_movieId") == col("movies.m_movieId"),
@@ -218,11 +237,12 @@ class Recommendation:
         ).withColumn(
             "combined_tags",
             F.concat_ws(" ",
-                        F.coalesce("tags.t_tags_str", lit("")),
-                        "movies.m_genres",
-                        "movies.m_titleClean",
-                        F.col("movies.m_year").cast("string"))
+                F.coalesce("tags.t_tags_str", lit("")),
+                "movies.m_genres",
+                "movies.m_titleClean",
+                F.col("movies.m_year").cast("string"))
         ).filter(col("combined_tags") != "")
+        print("movie_tags_enriched", movie_tags_enriched.show(n=5))
 
         # TF-IDF pipeline
         tokenizer = Tokenizer(inputCol="combined_tags", outputCol="words")
@@ -252,7 +272,7 @@ class Recommendation:
 
         # Handle cold start
         if user_tag_features.count() == 0:
-            print(f"⚠️ No valid ratings found for user {user_id}, using default vector")
+            print(f"No valid ratings found for user {user_id}, using default vector")
             avg_vector = np.zeros(hashing_tf.getNumFeatures())
         else:
             avg_vector = user_tag_features.rdd.map(
@@ -266,7 +286,7 @@ class Recommendation:
 
     def get_content_similarity(self, user_rec_movies, tags_df_transformed, avg_vector_broadcast):
         # Step 4: Calculate content similarity
-        print("📊 Calculating content similarity scores...")
+        print("Calculating content similarity scores...")
         rec_with_features = user_rec_movies.alias("recs").join(
             tags_df_transformed.alias("features"),
             col("recs.movie_rec_id") == col("features.t_movieId"),
@@ -289,7 +309,7 @@ class Recommendation:
 
     def get_final_combined(self, rec_with_similarity, user_id):
         # Step 5: Hybrid scoring
-        print("⚖️ Performing hybrid ranking...")
+        print("Performing hybrid ranking...")
         max_rating = rec_with_similarity.agg({"als_rating": "max"}).collect()[0][0]
         rec_normalized = rec_with_similarity.withColumn(
             "norm_rating",
@@ -301,10 +321,6 @@ class Recommendation:
             0.7 * col("norm_rating") + 0.3 * col("content_similarity")
         ).cache()
             
-        # print("here is get final combined:")
-        # print("rec:", rec_with_score.count())
-        # print("movie_df:", movie_df.columns)
-        # print("ratings_df:", ratings_df.columns)
         try:
             final_recs = (
                 rec_with_score.alias("scores")
@@ -315,10 +331,10 @@ class Recommendation:
                     col("scores.movie_rec_id").alias("movieId"),
                     col("movies.m_title").alias("title"),
                     col("movies.m_genres").alias("genres"),
-                    col("ratings.timestamp").cast("int").alias("timestamp"),  # 显式转换类型
+                    col("ratings.timestamp").cast("int").alias("timestamp"),  
                     col("scores.als_rating").alias("rating"),
-                    lit(None).cast("double").alias("similarity"),  # 补充缺失字段
-                    lit(None).cast("double").alias("final_score"),  # 补充缺失字段
+                    lit(None).cast("double").alias("similarity"), 
+                    lit(None).cast("double").alias("final_score"), 
                     lit("recommendation").alias("data_type")
                 )
             )
@@ -331,7 +347,7 @@ class Recommendation:
                     col("movieId"),
                     col("m_title").alias("title"),
                     col("m_genres").alias("genres"),
-                    col("timestamp").cast("int"),  # 显式转换确保类型一致
+                    col("timestamp").cast("int"), 
                     col("rating"),
                     lit(None).cast("double").alias("similarity"),
                     lit(None).cast("double").alias("final_score"),
@@ -353,7 +369,7 @@ class Recommendation:
         # Step 7: Export results
         output_path = str(self.result_path / f"user_{user_id}_recommendation_and_history")
         final_combined.coalesce(1).write.mode("overwrite").option("header", True).csv(output_path)
-        print(f"✅ Results saved to: {output_path}")
+        print(f"Results saved to: {output_path}")
 
     
     def weighted_recommendations(self, user_id, best_als_model):
@@ -372,29 +388,32 @@ class Recommendation:
             Transformed tags DataFrame with features
         """
         try:
-            print(f"\n🔍 Generating hybrid recommendations for user {user_id}...")
+            print(f"Generating hybrid recommendations for user {user_id}...")
 
             user_rec_movies = self.get_ALS_recommendations(best_als_model, user_id)
+            # print("user_rec_movies:", user_rec_movies.show(n=5))
+            # |userId|movie_rec_id|als_rating|
 
             tags_df_transformed, hashing_tf = self.get_content_feature_matrix()
+            print("tags_df_transformed:::::", tags_df_transformed.show(n=5))
 
-            avg_vector_broadcast, user_tag_features = self.get_user_profile(user_id, tags_df_transformed, hashing_tf)
+            # avg_vector_broadcast, user_tag_features = self.get_user_profile(user_id, tags_df_transformed, hashing_tf)
 
-            rec_with_similarity = self.get_content_similarity(user_rec_movies, tags_df_transformed, avg_vector_broadcast)
+            # rec_with_similarity = self.get_content_similarity(user_rec_movies, tags_df_transformed, avg_vector_broadcast)
 
-            final_combined, rec_with_score = self.get_final_combined(rec_with_similarity, user_id)
-            # print("final_combined:",final_combined)
-            self.export_result(user_id, final_combined)
+            # final_combined, rec_with_score = self.get_final_combined(rec_with_similarity, user_id)
+            # # print("final_combined:",final_combined)
+            # self.export_result(user_id, final_combined)
 
-            # Clean cached data
-            rec_with_score.unpersist()
-            if user_tag_features:
-                user_tag_features.unpersist()
+            # # Clean cached data
+            # rec_with_score.unpersist()
+            # if user_tag_features:
+            #     user_tag_features.unpersist()
 
-            return tags_df_transformed 
+            # return tags_df_transformed 
 
         except Exception as e:
-            print(f"❌ Recommendation generation failed for user {user_id}: {str(e)}")
+            print(f"Recommendation generation failed for user {user_id}: {str(e)}")
             raise  # Re-raise exception for outer handling
 
 
@@ -450,7 +469,7 @@ class Recommendation:
         sim_df.coalesce(1).write.mode("overwrite").option("header", True).csv(
             str(self.result_path / "movie_similarity_network.csv")
         )
-        print("🎥 Movie similarity network data exported to movie_similarity_network.csv")
+        print("Movie similarity network data exported to movie_similarity_network.csv")
 
 
     def export_wordcloud_fields(self):
@@ -480,7 +499,29 @@ class Recommendation:
         tags_enriched.coalesce(1).write.mode("overwrite").option("header", True).csv(
              str(self.result_path / "wordcloud_text.csv")
         )
-        print("☁️ Word cloud data exported to  wordcloud_text.csv")
+        print("Word cloud data exported to  wordcloud_text.csv")
+
+
+    def generate_recommendations(self, best_model):
+        user_ids = self.ratings_df.select("userId").distinct().rdd.map(
+            lambda row: row["userId"]
+        ).collect()
+        print(f"Generating recommendations for {len(user_ids)} users...")
+
+        tags_df_transformed = None
+        for user_id in user_ids:
+            try:
+                tags_df_transformed = self.weighted_recommendations(user_id, best_model)
+                break
+            except Exception as e:
+                print(f"Recommendation failed for user {user_id}, skipping: {str(e)}")
+                continue
+
+        if tags_df_transformed:
+            self.export_movie_similarity_network(tags_df_transformed)
+            self.export_wordcloud_fields()
+        else:
+            print("No successful recommendations generated, skipping exports")
 
 
 def main():
@@ -489,33 +530,9 @@ def main():
     # rc.setup_environment()
     rc.load_data()
     
-    # train_ratings_df, _ = rc.ratings_df.randomSplit([0.8, 0.2], seed=42)
-    # best_model = rc.hyperparameter_optimization(train_ratings_df)
+    best_model = rc.get_model(force_train=False)
 
-    # user_ids = rc.ratings_df.select("userId").distinct().rdd.map(
-    #     lambda row: row["userId"]
-    # ).collect()
-
-    # print(f"Generating recommendations for {len(user_ids)} users...")
-
-    # tags_df_transformed = None
-    # for user_id in user_ids:
-    #     try:
-    #         tags_df_transformed = rc.weighted_recommendations(user_id, best_model)
-    #     except Exception as e:
-    #         print(f"⚠️ Recommendation failed for user {user_id}, skipping: {str(e)}")
-    #         continue
-
-    # # Temporarily disable model saving on Windows to avoid Hadoop path issues
-    # save_path = str(ROOT_DIR / "models/als_recommendation")
-    # os.makedirs(save_path, exist_ok=True)
-    # best_model.write().overwrite().save(save_path)
-
-    # if tags_df_transformed:
-    #     rc.export_movie_similarity_network(tags_df_transformed)
-    #     rc.export_wordcloud_fields()
-    # else:
-    #     print("⚠️ No successful recommendations generated, skipping exports")
+    rc.generate_recommendations(best_model)
 
     rc.spark.stop()
 

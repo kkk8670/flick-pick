@@ -12,7 +12,7 @@ from pyspark.ml.recommendation import ALSModel
 
 load_dotenv()
 ROOT_DIR = Path(os.getenv('ROOT_DIR'))
-model_path = str(Path(os.getenv('ROOT_DIR')) / "models/als_model" ) 
+model_path = str(Path(os.getenv('ROOT_DIR')) / "models/als_recommendation" ) 
 movie_path = str(Path(os.getenv('ROOT_DIR')) / "data/test/movies.csv")
 inpput_path = str(Path(os.getenv('ROOT_DIR')) / "data/streaming_input/")
 output_path = str(Path(os.getenv('ROOT_DIR')) / "data/output/streaming_recommend")
