@@ -13,7 +13,7 @@ from pyspark.ml.tuning import ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator
 
-
+load_dotenv()
 ROOT_DIR = Path(os.getenv('ROOT_DIR'))
 
 def cosine_similarity_udf(v1, v2):
@@ -44,7 +44,7 @@ class Recommendation:
 
         load_dotenv()
         self.data_path = ROOT_DIR / "data"
-        self.result_path = self.data_path / "result"
+        self.result_path = self.data_path / "result_adjusted"
 
         self.spark = (SparkSession.builder
                         .appName("MovieRecommendation")
@@ -130,7 +130,35 @@ class Recommendation:
             )
             .withColumn("t_movieId", col("t_movieId").cast("int"))
         )
- 
+
+        # treeofsoda
+        max_timestamp = self.ratings_df.agg(F.max("timestamp")).collect()[0][0]
+        print(f"🔍 max_timestamp = {max_timestamp}")
+
+        half_life_seconds = 60 * 60 * 24 * 365 * 10  # 半衰期 = 10年
+        
+        self.ratings_df = self.ratings_df.withColumn(
+            "time_weight",
+            F.exp(-(max_timestamp - col("timestamp")) / half_life_seconds)  
+        )
+
+        alpha = 1.0  # 因子，可调大调小
+        self.ratings_df = self.ratings_df.withColumn(
+            "adjusted_rating",
+            (col("rating") + alpha * col("time_weight")).cast("float")
+        )
+
+        # 保证最大不超过5（ALS 上限）
+        self.ratings_df = self.ratings_df.withColumn(
+            "adjusted_rating",
+            F.when(col("adjusted_rating") > 5.0, 5.0).otherwise(col("adjusted_rating"))
+        )
+
+
+
+        self.ratings_df.select("rating", "time_weight", "adjusted_rating").show(20)
+
+        
 
 
     def build_base_als(self):
@@ -138,7 +166,7 @@ class Recommendation:
         return ALS(
             userCol="userId",
             itemCol="movieId",
-            ratingCol="rating",
+            ratingCol="adjusted_rating",
             coldStartStrategy="drop",
             rank=10,  # Base value, will be overridden by ParamGridBuilder
             maxIter=10,  # Base value, will be overridden by ParamGridBuilder
@@ -194,7 +222,7 @@ class Recommendation:
         # Step 1: Get ALS recommendations
         user_recs = best_als_model.recommendForUserSubset(
                 self.spark.createDataFrame([(user_id,)], ["userId"]),
-                100
+                20
             )
         user_rec_movies = user_recs.withColumn(
             "rec", explode("recommendations")
@@ -202,6 +230,14 @@ class Recommendation:
             "userId",
             col("rec.movieId").alias("movie_rec_id"),  # Renamed to avoid conflicts
             col("rec.rating").alias("als_rating")
+        )
+
+        # ✨ 去除用户已看过的电影
+        watched_movie_ids = self.ratings_df.filter(col("userId") == user_id).select("movieId")
+        user_rec_movies = user_rec_movies.join(
+            watched_movie_ids,
+            user_rec_movies["movie_rec_id"] == watched_movie_ids["movieId"],
+            how="left_anti"
         )
 
         return user_rec_movies
@@ -299,6 +335,8 @@ class Recommendation:
             "final_score",
             0.7 * col("norm_rating") + 0.3 * col("content_similarity")
         ).cache()
+
+        rec_with_score = rec_with_score.dropDuplicates(["userId", "movie_rec_id"])
             
         # print("here is get final combined:")
         # print("rec:", rec_with_score.count())
@@ -307,17 +345,17 @@ class Recommendation:
         try:
             final_recs = (
                 rec_with_score.alias("scores")
-                .join(self.movie_df.alias("movies"), col("scores.movie_rec_id") == col("movies.m_movieId"), "left")
-                .join(self.ratings_df.alias("ratings"), col("scores.userId") == col("ratings.userId"), "left")
+                .join(self.movie_df.alias("movies"),
+                    col("scores.movie_rec_id") == col("movies.m_movieId"), "left")
                 .select(
                     col("scores.userId"),
                     col("scores.movie_rec_id").alias("movieId"),
                     col("movies.m_title").alias("title"),
                     col("movies.m_genres").alias("genres"),
-                    col("ratings.timestamp").cast("int").alias("timestamp"),  # 显式转换类型
+                    lit(None).cast("int").alias("timestamp"),  # 空值填充，保持结构一致
                     col("scores.als_rating").alias("rating"),
-                    lit(None).cast("double").alias("similarity"),  # 补充缺失字段
-                    lit(None).cast("double").alias("final_score"),  # 补充缺失字段
+                    col("scores.content_similarity").alias("similarity"),
+                    col("scores.final_score").alias("final_score"),
                     lit("recommendation").alias("data_type")
                 )
             )
@@ -337,11 +375,12 @@ class Recommendation:
                     lit("history").alias("data_type")
                 )
             )
-            # print("user_history_out:", user_history_out.count())    
+            user_history_out = user_history_out.distinct()
+            print("user_history_out:", user_history_out.count())    
             final_combined = user_history_out.unionByName(
                     final_recs.select(*user_history_out.columns)
                 )
-            # print("final_combined:", final_combined.count())  
+            print("final_combined:", final_combined.count())  
             return final_combined, rec_with_score
         
         except Exception as e:
@@ -349,6 +388,7 @@ class Recommendation:
     
 
     def export_result(self, user_id, final_combined):
+        final_combined = final_combined.dropDuplicates(["userId", "movieId", "data_type"])
         # Step 7: Export results
         output_path = str(self.result_path / f"user_{user_id}_recommendation_and_history")
         final_combined.coalesce(1).write.mode("overwrite").option("header", True).csv(output_path)
@@ -488,7 +528,10 @@ def main():
     # rc.setup_environment()
     rc.load_data()
     
+    # 训练数据 split 后，只推荐 seen user（在训练集中出现过的 userId）
     train_ratings_df, _ = rc.ratings_df.randomSplit([0.8, 0.2], seed=42)
+    train_user_ids = train_ratings_df.select("userId").distinct().rdd.map(lambda row: row["userId"]).collect()
+
     best_model = rc.hyperparameter_optimization(train_ratings_df)
 
     user_ids = rc.ratings_df.select("userId").distinct().rdd.map(
@@ -498,7 +541,7 @@ def main():
     print(f"Generating recommendations for {len(user_ids)} users...")
 
     tags_df_transformed = None
-    for user_id in user_ids:
+    for user_id in train_user_ids:
         try:
             tags_df_transformed = rc.weighted_recommendations(user_id, best_model)
         except Exception as e:
