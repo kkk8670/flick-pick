@@ -124,7 +124,7 @@ class DataPreprocess:
 
     def get_movie_train_tags(self, overwrite=False):
         """
-        此函数用于 movie信息 & train 中 tf-id内容特征列，tags有：
+        此函数用于 movie信息 & train 中 tf-idf内容特征列，tags有：
         """
         movies_df, tags_df = self.load_df("movies"), self.load_df("tags")
         save_file = f"{self.data_path}/processed/movie_train_tags"

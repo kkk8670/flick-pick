@@ -163,9 +163,9 @@ if __name__ == "__main__":
     # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
-    # file_path = 'processed/rating_movie.csv'
-    # local_file = f"{str(data_path)}/{file_path}" 
-    # r2.upload_local_file(local_file, file_path)
+    file_path = 'output/movie_similarity_network.csv'
+    local_file = f"{str(data_path)}/{file_path}" 
+    r2.upload_local_file(local_file, file_path)
 
     # upload pd test
     # df = pd.read_csv(local_file, index_col=0)
@@ -187,5 +187,5 @@ if __name__ == "__main__":
     # print(df.head())
 
     # download file test
-    file = "processed/extra_tags.csv"
-    r2.download_file(file, f"{str(data_path)}/{file}")
+    # file = "processed/extra_tags.csv"
+    # r2.download_file(file, f"{str(data_path)}/{file}")
