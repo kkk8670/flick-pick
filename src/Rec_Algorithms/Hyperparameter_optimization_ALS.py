@@ -4,7 +4,7 @@ from pyspark.sql.functions import lit
 import numpy as np
 from dotenv import load_dotenv
 from pyspark.ml import Pipeline
-from pyspark.ml.feature import HashingTF, IDF, Tokenizer
+from pyspark.ml.feature import HashingTF, IDF
 from pyspark.ml.recommendation import ALS
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.functions import col, desc, explode, udf
@@ -12,6 +12,7 @@ from pyspark.sql.types import DoubleType
 from pyspark.ml.tuning import ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator
+from pyspark.ml.feature import RegexTokenizer
 
 
 def setup_environment():
@@ -211,21 +212,38 @@ def weighted_recommendations(user_id, best_als_model, movie_df, tags_df, ratings
 
         # Step 2: Build content feature matrix
         print("🔨 Building movie content feature matrix...")
-        movie_tags_enriched = tags_df.alias("tags").join(
-            movie_df.alias("movies"),
-            col("tags.t_movieId") == col("movies.m_movieId"),
-            "left"
-        ).withColumn(
-            "combined_tags",
-            F.concat_ws(" ",
-                        F.coalesce("tags.t_tags_str", lit("")),
-                        "movies.m_genres",
-                        "movies.m_titleClean",
-                        F.col("movies.m_year").cast("string"))
-        ).filter(col("combined_tags") != "")
+        movie_tags_enriched = (
+            tags_df.alias("tags")
+            .join(movie_df.alias("movies"),
+                  col("tags.t_movieId") == col("movies.m_movieId"),
+                  "left")
+
+            .withColumn(
+                "processed_tags",
+                F.regexp_replace(F.coalesce("tags.t_tags_str", lit("")), " ", "@@")  # 用@@替换标签中的空格
+            )
+            .withColumn(
+                "combined_tags",
+                F.concat_ws("@@",
+                            F.regexp_replace("processed_tags", " ", "@@"),  # 标签域
+                            F.regexp_replace("movies.m_genres", "\\|", "@@"),  # 流派域
+                            "movies.m_titleClean",
+                            F.col("movies.m_year").cast("string")
+                            )
+            )
+
+            .filter(col("combined_tags") != "")
+        )
 
         # TF-IDF pipeline
-        tokenizer = Tokenizer(inputCol="combined_tags", outputCol="words")
+
+        tokenizer = RegexTokenizer(
+            inputCol="combined_tags",
+            outputCol="words",
+            pattern="@@",  # 仅按@@分割，保护原有空格和|
+            gaps=True
+        )
+
         hashing_tf = HashingTF(inputCol=tokenizer.getOutputCol(),
                                outputCol="rawFeatures",
                                numFeatures=100)
@@ -273,7 +291,11 @@ def weighted_recommendations(user_id, best_als_model, movie_df, tags_df, ratings
 
         rec_with_similarity = rec_with_features.withColumn(
             "content_similarity",
-            similarity_udf(col("features.features"))
+            F.when(
+                col("features").isNull(), 0.0  # 处理空特征
+            ).otherwise(
+                similarity_udf(col("features.features"))
+            )
         )
 
         # Step 5: Hybrid scoring
@@ -291,24 +313,28 @@ def weighted_recommendations(user_id, best_als_model, movie_df, tags_df, ratings
 
         final_recs = (
             rec_with_score.alias("scores")
-            .join(movie_df.alias("movies"), ...)
-            .join(ratings_df.alias("ratings"), ...)
+            .join(movie_df.alias("movies"),
+                  col("scores.movie_rec_id") == col("movies.m_movieId"))
+            .join(ratings_df.alias("ratings"),  # 新增join
+                  (col("scores.userId") == col("ratings.userId")) &
+                  (col("scores.movie_rec_id") == col("ratings.movieId")),
+                  "left")
             .select(
                 col("scores.userId"),
                 col("scores.movie_rec_id").alias("movieId"),
                 col("movies.m_title").alias("title"),
                 col("movies.m_genres").alias("genres"),
-                col("ratings.timestamp").cast("int").alias("timestamp"),  # 显式转换类型
+                F.coalesce(col("ratings.timestamp"), lit(0)).cast("int").alias("timestamp"),
                 col("scores.als_rating").alias("rating"),
-                lit(None).cast("double").alias("similarity"),  # 补充缺失字段
-                lit(None).cast("double").alias("final_score"),  # 补充缺失字段
+                col("scores.content_similarity").alias("similarity"),  # 使用真实值
+                F.coalesce("final_score", lit(0.0)).alias("final_score"),
                 lit("recommendation").alias("data_type")
             )
         )
 
         user_history_out = (
             ratings_df.filter(col("userId") == user_id)
-            .join(movie_df, ...)
+            .join(movie_df, ratings_df["movieId"] == movie_df["m_movieId"])
             .select(
                 col("userId"),
                 col("movieId"),
@@ -469,4 +495,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
