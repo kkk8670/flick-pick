@@ -124,33 +124,63 @@ class DataPreprocess:
 
     def get_movie_train_tags(self, overwrite=False):
         """
-        此函数用于 movie信息 & train 中 tf-idf内容特征列，tags有：
+        构建 movie + tag 的 tf-idf 特征列，格式统一，一行一电影，输出列为：
+        movieId, title, genres, tag, year
         """
         movies_df, tags_df = self.load_df("movies"), self.load_df("tags")
         save_file = f"{self.data_path}/processed/movie_train_tags"
 
-        # tags的策略是依据movieid拼接，缺失tags的填""
+        tags_df = tags_df.fillna({"tag": ""})
+
+        tags_df_grouped = (
+            tags_df
+            .groupBy("movieId")
+            .agg(collect_list("tag").alias("tag_list"))
+        )
+
+        def clean_tags(tag_list):
+            tags = set()
+            for t in tag_list:
+                if t:
+                    for item in t.lower().split("|"):
+                        item = item.strip().replace(" ", "_")
+                        if item:
+                            tags.add(f"tag_{item}")
+            return " ".join(sorted(tags))
+
+        clean_tags_udf = udf(clean_tags, StringType())
+        tags_df_grouped = tags_df_grouped.withColumn("tag_clean", clean_tags_udf("tag_list"))
+
+        def clean_genres(genres_str):
+            if not genres_str:
+                return ""
+            genres = genres_str.lower().split("|")
+            genres = set(g.strip().replace(" ", "_") for g in genres if g.strip())
+            return " ".join(sorted(f"genre_{g}" for g in genres))
+
+        clean_genres_udf = udf(clean_genres, StringType())
+        movies_df = (
+            movies_df
+            .withColumn("genres_clean", clean_genres_udf("genres"))
+            .withColumn("year", regexp_extract("title", r"\((\d{4})\)", 1))
+            .withColumn("title", regexp_replace("title", r"\s*\(\d{4}\)", ""))
+        )
+
         joined_df = (
-                        movies_df
-                            .join(tags_df.select("movieId", "tag"), 
-                                on=["movieId"], 
-                                how="left"
-                            )
-                    )
+            movies_df
+            .join(tags_df_grouped.select("movieId", "tag_clean"), on="movieId", how="left")
+            .fillna({"tag_clean": ""})
+        )
 
-        # check_joined_null_tag(joined_df)
+        # 对列重命名
+        joined_df = joined_df.select(
+            "movieId",
+            "title",
+            col("genres_clean").alias("genres"),
+            col("tag_clean").alias("tag"),
+            "year"
+        )
 
-        joined_df = joined_df.fillna({"tag": ""})
-
-        joined_df = (   
-                        joined_df
-                            .withColumn("year", regexp_extract("title", r"\((\d{4})\)", 1))
-                            .withColumn("title", regexp_replace("title", r"\s*\(\d{4}\)", ""))
-                    )
-     
-        # joined_df.show(n=5)
-
-        # save
         self.save_df(joined_df, save_file, overwrite)
 
 
