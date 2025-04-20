@@ -63,43 +63,46 @@ class DataPreprocess:
         labeled_df.groupBy("null_status").count().show()
 
 
-    def merge_other_data(overwrite=False):
+    def merge_other_data(self, overwrite=False):
         """
-        这个数据集用于 非训练&需要user和movie一起定义 的列，目前只有timestamp
+        合并 ratings 和 tags 的 timestamp，补全缺失并生成可读日期列：
+        - rating_date：基于 ratingTimestamp
+        - tag_date：基于 tagTimestamp
         """
         ratings_df, tags_df = self.load_df("ratings"), self.load_df("tags")
 
         save_file = f"{self.data_path}/processed/user_movie_timestamp"
 
-        # ts的策略是Full Outer Join，就地（不产生新列）只缺失一列的值填对方，都缺失的填充0
+        # 统一重命名时间戳列，做 full outer join
         joined_df = (
-                        ratings_df.select("userId", "movieId", "ratingTimestamp")
-                            .join(tags_df.select("userId", "movieId", "tagTimestamp"), 
-                                on=["userId", "movieId"], 
-                                how="full"
-                            )
-                    )
+            ratings_df.select("userId", "movieId", "timestamp").withColumnRenamed("timestamp", "ratingTimestamp")
+            .join(
+                tags_df.select("userId", "movieId", "timestamp").withColumnRenamed("timestamp", "tagTimestamp"),
+                on=["userId", "movieId"],
+                how="full"
+            )
+        )
 
-        # check_joined_null_timestamp(joined_df)
-
+        # 缺值互补：任一为空则用另一个值补上，全部为空设为 0
         joined_df = (
-                        joined_df 
-                        .withColumn(
-                            "ratingTimestamp",
-                            when(col("ratingTimestamp").isNull(), col("tagTimestamp")) 
-                            .otherwise(col("ratingTimestamp"))
-                        ) 
-                        .withColumn(
-                            "tagTimestamp",
-                            when(col("tagTimestamp").isNull(), col("ratingTimestamp")) 
-                            .otherwise(col("tagTimestamp"))
-                        ) 
-                        .fillna({"ratingTimestamp": 0, "tagTimestamp": 0})
-                    )
+            joined_df
+            .withColumn(
+                "ratingTimestamp",
+                when(col("ratingTimestamp").isNull(), col("tagTimestamp")).otherwise(col("ratingTimestamp"))
+            )
+            .withColumn(
+                "tagTimestamp",
+                when(col("tagTimestamp").isNull(), col("ratingTimestamp")).otherwise(col("tagTimestamp"))
+            )
+            .fillna({"ratingTimestamp": 0, "tagTimestamp": 0})
+        )
 
-        # df_filled.show(n=5)
+        # 新增两个可读格式的日期列
+        joined_df = joined_df \
+            .withColumn("rating_date", from_unixtime(col("ratingTimestamp"), "yyyy-MM-dd")) \
+            .withColumn("tag_date", from_unixtime(col("tagTimestamp"), "yyyy-MM-dd"))
 
-        # save
+        # 保存
         self.save_df(joined_df, save_file, overwrite)
 
  
@@ -195,6 +198,8 @@ class DataPreprocess:
 
         # save
         self.save_df(movies_df, save_file, overwrite)
+
+
 
 
 def main():
