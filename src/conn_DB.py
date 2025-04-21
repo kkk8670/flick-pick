@@ -34,7 +34,7 @@ class R2Client:
             return False
 
 
-    def list_folder(self, prefix="", recursive=False):
+    def list_folder(self, prefix="", recursive=True):
         """list all data structure"""
         print(f"Listing datasets under: '{prefix}'")
 
@@ -47,7 +47,7 @@ class R2Client:
             operation_parameters["Delimiter"] = "/"
 
         result = paginator.paginate(**operation_parameters)
-
+        files = []
         for page in result:
             if not recursive and "CommonPrefixes" in page:
                 print("Subfolders:")
@@ -59,6 +59,9 @@ class R2Client:
                 for obj in page["Contents"]:
                     if obj["Key"] != prefix:
                         print(" -", obj["Key"])
+                        files.append(obj["Key"])
+        return files 
+
 
     def get_file(self, file_path):
         """get .csv from R2 """
@@ -124,7 +127,8 @@ class R2Client:
                     print(f"Failed to upload {relative_path}:", e)
 
 
-    def download_file(self, remote_path, local_path):
+    def download_file(self, remote_path, local_path, overwrite=False):
+ 
         try:
             self.client.download_file(self.bucket_name, remote_path, local_path)
             print(f"download {remote_path} to {local_path}")
@@ -132,6 +136,19 @@ class R2Client:
             print(f"file {remote_path} not exits")
         except Exception as e:
             print(f"download file error: {e}")
+
+
+    def download_folder(self, remote_path, overwrite=True):
+
+        files = self.list_folder(remote_path)
+
+        for file in files:
+            local_dir = os.path.dirname(file) 
+            # print(local_dir)
+            os.makedirs(f"{data_path}/{local_dir}" , exist_ok=True)
+            local_file = f"{data_path}/{file}"
+            if not os.path.exists(local_file) or overwrite:
+                self.download_file(file, local_file, overwrite)
 
 
     def delete_file(self, remote_path):
@@ -153,19 +170,21 @@ class R2Client:
 
         print(f"✅ Deleted all files under folder '{prefix}'")
 
+
 if __name__ == "__main__":
     r2 = R2Client()
-    data_path = Path(os.getenv('ROOT_DIR')) / "data"
+    root_path = os.getenv('ROOT_DIR')
+    data_path = f"{root_path}/data"
 
     # upload folder test
-    # local_folder = str(data_path / 'raw')
+    # local_folder = f"{data_path}/raw"
     # remote_folder = "raw"
     # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
-    file_path = 'output/movie_similarity_network.csv'
-    local_file = f"{str(data_path)}/{file_path}" 
-    r2.upload_local_file(local_file, file_path)
+    # file_path = 'output/movie_similarity_network.csv'
+    # local_file = f"{data_path}/{file_path}" 
+    # r2.upload_local_file(local_file, file_path)
 
     # upload pd test
     # df = pd.read_csv(local_file, index_col=0)
@@ -178,7 +197,7 @@ if __name__ == "__main__":
 
     # list structure test
     r2_path =  "" # "test/"
-    r2.list_folder(r2_path, 1)   
+    # r2.list_folder(r2_path, 1)   
 
     # get file test 
     # r2_file = f"/processed/for_visual_sample.csv" 
@@ -188,4 +207,8 @@ if __name__ == "__main__":
 
     # download file test
     # file = "processed/extra_tags.csv"
-    # r2.download_file(file, f"{str(data_path)}/{file}")
+    # r2.download_file(file, f"{data_path}/{file}")
+
+    # download folder test
+    r2_folder = ""
+    r2.download_folder(r2_folder, overwrite=False)
