@@ -240,11 +240,11 @@ class Recommendation:
                 self.spark.createDataFrame([(user_id,)], ["userId"]),
                 100
             )
-        # print("第一行", user_recs.first().asDict())
+        # print("1st", user_recs.first().asDict())
         user_rec_movies = user_recs.withColumn(
             "rec", explode("recommendations")
         ).select( "userId", "rec.movieId", "rec.rating")
-        # print("第一行", user_rec_movies.first().asDict())
+        # print("1st", user_rec_movies.first().asDict())
         return user_rec_movies
         
 
@@ -277,14 +277,15 @@ class Recommendation:
                             )
         # self.check_dup(movie_features_df)
 
-        movie_features_df = movie_features_df.withColumn(
-                                "combined_features",
-                                concat_ws(" ", "title", "genres", "tag", "year")
+        movie_features_df = movie_features_df
+                                .withColumn("combined_features",
+                                    concat_ws(" ", "title", "genres", "tag", "year")
+                                .filter(col("combined_tags") != "")
                             ).select("movieId", "combined_features")
 
             
         # self.check_dup(movie_features_df)
-        # print("第一行", movie_features_df.first().asDict())
+        # print("1st", movie_features_df.first().asDict())
 
         # TF-IDF pipeline
         tokenizer = Tokenizer(inputCol="combined_features", outputCol="words")
@@ -307,8 +308,8 @@ class Recommendation:
             col("ratings.userId") == user_id
         )
 
-        # print("user_history 第一行", user_history.first().asDict())
-        # print("tags_df_transformed 第一行", tags_df_transformed.first().asDict())
+        # print("user_history 1st", user_history.first().asDict())
+        # print("tags_df_transformed 1st", tags_df_transformed.first().asDict())
 
         # add movieId列。这里用"features.features"会报错
         user_tag_features = user_history.join(
@@ -319,7 +320,7 @@ class Recommendation:
             "features"
         ).cache()
 
-        # print("user_tag_features 第一行", user_history.first().asDict())
+        # print("user_tag_features 1st", user_history.first().asDict())
 
         # Handle cold start
         if user_tag_features.count() == 0:
@@ -338,13 +339,13 @@ class Recommendation:
     def get_content_similarity(self, user_rec_movies, tags_df_transformed, avg_vector_broadcast):
         print("Step 4: Calculating content similarity scores...")
 
-        # print("user_rec_movies 第一行", user_rec_movies.first().asDict())
-        # print("tags_df_transformed 第一行", tags_df_transformed.first().asDict())
+        # print("user_rec_movies 1st ", user_rec_movies.first().asDict())
+        # print("tags_df_transformed 1st", tags_df_transformed.first().asDict())
         rec_with_features = user_rec_movies.join(
             tags_df_transformed,
             "movieId"   
         )
-        # print("rec_with_features 第一行", rec_with_features.first().asDict())
+        # print("rec_with_features 1st ", rec_with_features.first().asDict())
 
         avg_vector = avg_vector_broadcast.value
 
@@ -355,9 +356,13 @@ class Recommendation:
 
         rec_with_similarity = rec_with_features.withColumn(
             "content_similarity",
-            similarity_udf(col("features"))
+        F.when(
+                col("features").isNull(), 0.0  
+            ).otherwise(
+                similarity_udf(col("features"))
+            )
         )
-        # print("rec_with_similarity 第一行", rec_with_similarity.first().asDict())
+        # print("rec_with_similarity 1st ", rec_with_similarity.first().asDict())
         return rec_with_similarity
     
 
@@ -374,8 +379,8 @@ class Recommendation:
             0.7 * col("norm_rating") + 0.3 * col("content_similarity")
         ).cache()
             
-        # print("rec_with_score 第一行", rec_with_score.first().asDict())
-        # print("self.tags_df 第一行", self.tags_df.first().asDict())
+        # print("rec_with_score 1st", rec_with_score.first().asDict())
+        # print("self.tags_df 1st", self.tags_df.first().asDict())
         try:
             final_recs = rec_with_score.select(
                 col("userId"),
