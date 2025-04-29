@@ -65,11 +65,6 @@ class Recommendation:
 
         self.spark = (SparkSession.builder
                         .appName("MovieRecommendation")
-                        # .config("spark.executorEnv.PYSPARK_PYTHON", os.getenv("PYSPARK_PYTHON"))
-                        # .config("spark.yarn.appMasterEnv.PYSPARK_PYTHON",
-                        #         os.getenv("PYSPARK_PYTHON"))
-                        # .config("spark.python.profile", "false")
-                        # .config("spark.hadoop.validateOutputSpecs", "false")
                         .config("spark.driver.host", "localhost") 
                         .getOrCreate()
                     )
@@ -234,40 +229,10 @@ class Recommendation:
         return best_model
 
 
-    def get_ALS_recommendations(self, best_als_model, user_id):
-        print("Step 1: Get ALS reçcommendations...")
-        user_recs = best_als_model.recommendForUserSubset(
-                self.spark.createDataFrame([(user_id,)], ["userId"]),
-                100
-            )
-        # print("1st", user_recs.first().asDict())
-        user_rec_movies = user_recs.withColumn(
-            "rec", explode("recommendations")
-        ).select( "userId", "rec.movieId", "rec.rating")
-        # print("1st", user_rec_movies.first().asDict())
-        return user_rec_movies
-        
-
     def get_content_feature_matrix(self):
-        print("Step 2: Build content feature matrix...")
+        print("Step 0: Build content feature matrix...")
         # self.check_dup(self.tags_df)
-
-        # movie_tags_enriched = self.tags_df.alias("tags").join(
-        #     self.movie_df.alias("movies"),
-        #     col("tags.t_movieId") == col("movies.m_movieId"),
-        #     "left"
-        # ).withColumn(
-        #     "combined_features",
-        #     F.concat_ws(" ",
-        #         F.coalesce("tags.t_tags_str", lit("")),
-        #         "movies.m_genres",
-        #         "movies.m_titleClean",
-        #         F.col("movies.m_year").cast("string"))
-        # ).filter(col("combined_features") != "")
-        # movie_tags_enriched.show(n=5)
-        # print("第一行", movie_tags_enriched.first().asDict())
-        # self.check_dup(movie_tags_enriched)
-        
+ 
         movie_features_df = (
                             self.tags_df
                                 .withColumn("title", coalesce(self.tags_df["title"], lit(""))) 
@@ -277,13 +242,13 @@ class Recommendation:
                             )
         # self.check_dup(movie_features_df)
 
-        movie_features_df = movie_features_df
-                                .withColumn("combined_features",
-                                    concat_ws(" ", "title", "genres", "tag", "year")
-                                .filter(col("combined_tags") != "")
-                            ).select("movieId", "combined_features")
+        movie_features_df = (
+                                movie_features_df  
+                                .withColumn("combined_features", concat_ws(" ", "title", "genres", "tag", "year"))
+                                .where(col("combined_features") != lit(""))  
+                                .select("movieId", "combined_features")
+                            )
 
-            
         # self.check_dup(movie_features_df)
         # print("1st", movie_features_df.first().asDict())
 
@@ -302,16 +267,27 @@ class Recommendation:
         return tags_df_transformed, hashing_tf
 
 
+    def get_ALS_recommendations(self, best_als_model, user_id):
+        print("Step 1: Get ALS reçcommendations...")
+        user_recs = best_als_model.recommendForUserSubset(
+                self.spark.createDataFrame([(user_id,)], ["userId"]),
+                100
+            )
+        # print("1st", user_recs.first().asDict())
+        user_rec_movies = user_recs.withColumn(
+            "rec", explode("recommendations")
+        ).select( "userId", "rec.movieId", "rec.rating")
+        # print("1st", user_rec_movies.first().asDict())
+        return user_rec_movies
+        
+
     def get_user_profile(self, user_id, tags_df_transformed, hashing_tf):
-        print("Step 3: Building user preference profile...")
+        print("Step 2: Building user preference profile...")
         user_history = self.ratings_df.alias("ratings").filter(
             col("ratings.userId") == user_id
         )
 
-        # print("user_history 1st", user_history.first().asDict())
-        # print("tags_df_transformed 1st", tags_df_transformed.first().asDict())
-
-        # add movieId列。这里用"features.features"会报错
+ 
         user_tag_features = user_history.join(
             tags_df_transformed,
             "movieId"   
@@ -337,10 +313,9 @@ class Recommendation:
 
 
     def get_content_similarity(self, user_rec_movies, tags_df_transformed, avg_vector_broadcast):
-        print("Step 4: Calculating content similarity scores...")
+        print("Step 3: Calculating content similarity scores...")
 
-        # print("user_rec_movies 1st ", user_rec_movies.first().asDict())
-        # print("tags_df_transformed 1st", tags_df_transformed.first().asDict())
+ 
         rec_with_features = user_rec_movies.join(
             tags_df_transformed,
             "movieId"   
@@ -367,7 +342,7 @@ class Recommendation:
     
 
     def get_final_combined(self, rec_with_similarity, user_id):
-        print("Step 5: Performing hybrid ranking...")
+        print("Step 4: Performing hybrid ranking...")
         max_rating = rec_with_similarity.agg({"rating": "max"}).collect()[0][0]
         rec_normalized = rec_with_similarity.withColumn(
             "norm_rating",
@@ -388,33 +363,16 @@ class Recommendation:
                 col("rating"),
                 col("content_similarity").alias("similarity"),   
                 col("final_score"),   
-                lit("recommendation").alias("data_type")
             )
  
-            # print("final_recs:", final_recs.columns)    
-            user_history_out = (
-                self.ratings_df.filter(col("userId") == user_id)
-                .select(
-                    col("userId"),
-                    col("movieId"),
-                    col("rating"),
-                    lit(None).cast("double").alias("similarity"),
-                    lit(None).cast("double").alias("final_score"),
-                    lit("history").alias("data_type")
-                )
-            )
-            # print("user_history_out:", user_history_out.count())    
-            final_combined = user_history_out.unionByName(
-                    final_recs.select(*user_history_out.columns)
-                )
-            # print("final_combined:", final_combined.count())  
-            return final_combined, rec_with_score
+            # print("final_recs:", final_combined.count())  
+            return final_recs, rec_with_score
         
         except Exception as e:
             print("combine data error:", e)
     
 
-    def export_result(self, output_path, final_combined, overwrite=True):
+    def export_result(self, output_path, final_recs, overwrite=True):
         
         if not overwrite and (
                 os.path.exists(output_path) or 
@@ -423,7 +381,7 @@ class Recommendation:
             print(f"already existed：{output_path}")
             return
 
-        final_combined.coalesce(1).write.option("header", True).mode("overwrite").csv(output_path)
+        final_recs.coalesce(1).write.option("header", True).mode("overwrite").csv(output_path)
         save_to_csv(output_path)
         print(f"save succeed：{output_path}")
 
@@ -451,21 +409,21 @@ class Recommendation:
             # self.check_dup(user_rec_movies)
 
 
-            # Step 3: Build user preference profile
+            # Step 2: Build user preference profile
             user_tag_features, avg_vector_broadcast = self.get_user_profile(user_id, tags_df_transformed, hashing_tf)
             # self.check_dup(user_tag_features)
 
-            # Step 4: Calculate content similarity scores
+            # Step 3: Calculate content similarity scores
             rec_with_similarity = self.get_content_similarity(user_rec_movies, tags_df_transformed, avg_vector_broadcast)
             
 
-            # Step 5: Hybrid scoring
-            final_combined, rec_with_score = self.get_final_combined(rec_with_similarity, user_id)
+            # Step 4: Hybrid scoring
+            final_recs, rec_with_score = self.get_final_combined(rec_with_similarity, user_id)
             # self.check_dup(rec_with_similarity)
 
             # save
-            output_path = f"{self.result_path}/user_{user_id}_recommendation_and_history"
-            self.export_result(output_path, final_combined)
+            output_path = f"{self.result_path}/user_{user_id}_recommendation"
+            self.export_result(output_path, final_recs)
 
             # # Clean cached data
             rec_with_score.unpersist()
@@ -509,24 +467,11 @@ class Recommendation:
                 result.append((id1, id2, sim))
 
         schema = StructType([
-            StructField("movieId1", IntegerType()),
-            StructField("movieId2", IntegerType()),
+            StructField("sourceMovie", IntegerType()),
+            StructField("targetMovie", IntegerType()),
             StructField("similarity", DoubleType())
         ])
         sim_df = self.spark.createDataFrame(result, schema=schema)
-
-        # # Add movie title information
-        # sim_df = (
-        #     sim_df
-        #     .join(self.movie_df.select("m_movieId", "m_title")
-        #           .withColumnRenamed("m_movieId", "movieId1")
-        #           .withColumnRenamed("m_title", "title1"),
-        #           sim_df["movieId1"] == col("movieId1"))
-        #     .join(self.movie_df.select("m_movieId", "m_title")
-        #           .withColumnRenamed("m_movieId", "movieId2")
-        #           .withColumnRenamed("m_title", "title2"),
-        #           sim_df["movieId2"] == col("movieId2"))
-        # )
 
         output_path = f"{self.result_path}/movie_similarity_network"
         self.export_result(output_path, sim_df)
@@ -557,9 +502,8 @@ class Recommendation:
         print(f"Generating recommendations for {len(user_ids)} users...")
 
         tags_df_transformed = None
-        # 原 Step 2: Build content feature matrix， 挪到外面
-        ##### 这个函数产生重复 #####
-        ### 已替换
+  
+        # step 0
         tags_df_transformed, hashing_tf = self.get_content_feature_matrix()
         # self.check_dup(tags_df_transformed)
 

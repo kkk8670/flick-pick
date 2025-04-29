@@ -1,17 +1,38 @@
 # flick-pick
 
-## structure
+## Structure
 
 .
-├── README.md
-├── other code
-├── data/
-│	├── raw/        # origianl data (Modification Prohibited)
-│	├── processed/  # processed data
-│   └── other data
- 
+├── data/                   
+│   ├── movies.csv          
+│   ├── wordcloud_text.csv  
+│   ├── movie_similarity_network.csv  
+│   └── user_recommendations/  
+│       ├── user_1_recommendations.csv
+│       └── user_2_recommendations.csv
+├── models/                 
+├── src/                    
+├── web/                   # Web 
+│   ├── app.py             # Flask 
+│   └── templates/          
+│       └── dashboard.html  
+└── main.py                
 
-## DVC workflow
+## Run
+launch:
+`bashpython main.py --mode all`
+
+only generate recommend:
+`bashpython main.py --mode recommend`
+
+Only start the Web service:
+bashpython main.py --mode serve
+
+Generate recommendations for specific users:
+`bashpython main.py --mode recommend --user_id 1`
+
+
+## --DVC workflow--
 
 dvc for big data sync. saved in google drive.
 

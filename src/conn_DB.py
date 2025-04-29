@@ -185,7 +185,7 @@ if __name__ == "__main__":
     # file_path = 'output/movie_similarity_network.csv'
     # local_file = f"{data_path}/{file_path}" 
     # r2.upload_local_file(local_file, file_path)
-
+ 
     # upload pd test
     # df = pd.read_csv(local_file, index_col=0)
     # print(df.head())
@@ -208,7 +208,7 @@ if __name__ == "__main__":
     # download file test
     # file = "processed/extra_tags.csv"
     # r2.download_file(file, f"{data_path}/{file}")
-
     # download folder test
     r2_folder = ""
     r2.download_folder(r2_folder, overwrite=False)
+ 

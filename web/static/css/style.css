@@ -1,0 +1,152 @@
+:root {
+    --primary-color: #517551;
+    --secondary-color: #5e83bb;
+    --accent-color: #d3b143;
+    --light-bg: #f8f9fa;
+    --dark-bg: #212529;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f0f2f5;
+    color: #333;
+}
+
+.navbar {
+    background-color: var(--primary-color);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    margin-bottom: 20px;
+    border: none;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    border-radius: 12px 12px 0 0 !important;
+    font-weight: 600;
+}
+
+.section-title {
+    color: var(--primary-color);
+    font-weight: 700;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--accent-color);
+}
+
+.user-select {
+    max-width: 300px;
+}
+
+.movie-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.movie-title {
+    font-weight: 600;
+    color: var(--primary-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.score-badge {
+    border-radius: 20px;
+    padding: 5px 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.final-score {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.rating-score {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.similarity-score {
+    background-color: #6c757d;
+    color: white;
+}
+
+.genres-tag {
+    background-color: #e9ecef;
+    color: #495057;
+    border-radius: 20px;
+    padding: 5px 10px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    font-size: 0.8rem;
+    display: inline-block;
+}
+
+.tab-content {
+    padding: 20px 0;
+}
+
+#network-graph {
+    height: 600px;
+    width: 100%;
+}
+
+.wordcloud-container {
+    text-align: center;
+}
+
+.wordcloud-img {
+    max-width: 100%;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card-header.recommendations {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.card-header.wordcloud {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.card-header.network {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.nav-tabs .nav-link {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--accent-color);
+    border-bottom: 3px solid var(--accent-color);
+}
+
+.sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+@media (max-width: 768px) {
+    .movie-card {
+        margin-bottom: 15px;
+    }
+}

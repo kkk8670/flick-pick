@@ -1,8 +1,11 @@
+#!/usr/bin/env python
+# @Auther liukun, liyue, jinyujian
+
 import os, sys
 from dotenv import load_dotenv
 import pandas as pd 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when, concat, lit, regexp_extract, regexp_replace
+from pyspark.sql.functions import col, when, concat, concat_ws, lit, regexp_extract, regexp_replace, from_unixtime, collect_list, explode, split, lower, trim, sort_array, collect_set, array, transform, array_distinct, length
 
 load_dotenv()
 project_path = os.getenv("PYTHONPATH")
@@ -11,12 +14,10 @@ if project_path and project_path not in sys.path:
 from utils import save_to_csv 
 
 
-
-
 class DataPreprocess:
     def __init__(self):
-        root_dir = os.getenv('ROOT_DIR')
-        self.data_path = f"{root_dir}/data"
+        ROOT_DIR = os.getenv('ROOT_DIR')
+        self.data_path = f"{ROOT_DIR}/data"
         self.raw_set = "raw/ml-latest-small"
         self.spark = (
                     SparkSession.builder  
@@ -51,7 +52,7 @@ class DataPreprocess:
 
 
     def check_joined_null_timestamp(self, joined_df):
-        # check 统计为空的 
+        # check if cell is null
         labeled_df = joined_df.withColumn(
             "null_status",
             when(col("rating").isNull() & col("tag").isNull(), "both_null")
@@ -63,17 +64,15 @@ class DataPreprocess:
         labeled_df.groupBy("null_status").count().show()
 
 
-    def merge_other_data(self, overwrite=False):
+    def get_user_movie_info(self, overwrite=False):
         """
-        合并 ratings 和 tags 的 timestamp，补全缺失并生成可读日期列：
-        - rating_date：基于 ratingTimestamp
-        - tag_date：基于 tagTimestamp
+        merge ratings & tags timestamp
         """
         ratings_df, tags_df = self.load_df("ratings"), self.load_df("tags")
 
-        save_file = f"{self.data_path}/processed/user_movie_timestamp"
+        save_file = f"{self.data_path}/output/user_movie_info"
 
-        # 统一重命名时间戳列，做 full outer join
+        # join timestamp with full outer join
         joined_df = (
             ratings_df.select("userId", "movieId", "timestamp").withColumnRenamed("timestamp", "ratingTimestamp")
             .join(
@@ -83,7 +82,7 @@ class DataPreprocess:
             )
         )
 
-        # 缺值互补：任一为空则用另一个值补上，全部为空设为 0
+        # Missing value complementary strategy: if any of the values is null, use another value to fill in, set 0 for all nulls.
         joined_df = (
             joined_df
             .withColumn(
@@ -97,23 +96,24 @@ class DataPreprocess:
             .fillna({"ratingTimestamp": 0, "tagTimestamp": 0})
         )
 
-        # 新增两个可读格式的日期列
+        # stamp -> date
         joined_df = joined_df \
             .withColumn("rating_date", from_unixtime(col("ratingTimestamp"), "yyyy-MM-dd")) \
             .withColumn("tag_date", from_unixtime(col("tagTimestamp"), "yyyy-MM-dd"))
 
-        # 保存
+        # save
         self.save_df(joined_df, save_file, overwrite)
 
  
     def get_rating_data(self, overwrite):
         """
-        这个数据集用于 需要user和movie一起 & train 中 als评分列，只有movieid，userid和rating
+        for primany key = userid+movieid   
+        als with cols : movieid，userid and rating
         """
         
         save_file = f"{self.data_path}/processed/user_movie_rating"
      
-        ratings_df = self.df["ratings"].select("userId", "movieId", "rating")
+        ratings_df = self.load_df("ratings").select("userId", "movieId", "rating")
        
         # save
         self.save_df(ratings_df, save_file, overwrite)
@@ -125,57 +125,73 @@ class DataPreprocess:
         joined_df.filter(col("tag").isNull()).show()
 
 
-    def get_movie_train_tags(self, overwrite=False):
+    def get_movie_features(self, overwrite=False):
         """
-        构建 movie + tag 的 tf-idf 特征列，格式统一，一行一电影，输出列为：
+        for tf-idf feature of movie，with cols：
         movieId, title, genres, tag, year
         """
         movies_df, tags_df = self.load_df("movies"), self.load_df("tags")
-        save_file = f"{self.data_path}/processed/movie_train_tags"
+        save_tags_file = f"{self.data_path}/processed/movie_train_tags"
+        save_info_file = f"{self.data_path}/output/movie_infos"
 
-        tags_df = tags_df.fillna({"tag": ""})
-
-        tags_df_grouped = (
-            tags_df
-            .groupBy("movieId")
-            .agg(collect_list("tag").alias("tag_list"))
-        )
-
-        def clean_tags(tag_list):
-            tags = set()
-            for t in tag_list:
-                if t:
-                    for item in t.lower().split("|"):
-                        item = item.strip().replace(" ", "_")
-                        if item:
-                            tags.add(f"tag_{item}")
-            return " ".join(sorted(tags))
-
-        clean_tags_udf = udf(clean_tags, StringType())
-        tags_df_grouped = tags_df_grouped.withColumn("tag_clean", clean_tags_udf("tag_list"))
-
-        def clean_genres(genres_str):
-            if not genres_str:
-                return ""
-            genres = genres_str.lower().split("|")
-            genres = set(g.strip().replace(" ", "_") for g in genres if g.strip())
-            return " ".join(sorted(f"genre_{g}" for g in genres))
-
-        clean_genres_udf = udf(clean_genres, StringType())
         movies_df = (
             movies_df
-            .withColumn("genres_clean", clean_genres_udf("genres"))
             .withColumn("year", regexp_extract("title", r"\((\d{4})\)", 1))
             .withColumn("title", regexp_replace("title", r"\s*\(\d{4}\)", ""))
         )
+        movies_info = movies_df.withColumn('link',concat(lit('https://movielens.org/movies/'), col('movieId').cast('string')))
+
+        movies_info = movies_info.select(
+            "movieId",
+            "title",
+            "year",
+            'link'
+        )
+
+        
+        self.save_df(movies_info, save_info_file, overwrite)
+
+        movies_df = (movies_df
+            .withColumn("genres_array", 
+                        when(col("genres").isNull() | (col("genres") == ""), array())
+                        .otherwise(split(lower("genres"), "\\|")))
+            .withColumn("genres_trimmed", 
+                        transform("genres_array", lambda x: trim(x)))
+            .withColumn("genres_replaced", 
+                        transform("genres_trimmed", lambda x: regexp_replace(x, " ", "_")))
+            .withColumn("genres_filtered", 
+                        array_distinct(transform("genres_replaced", lambda x: when(length(x) > 0, concat(lit("genre_"), x)))))
+            .withColumn("genres_clean", 
+                        concat_ws(" ", sort_array("genres_filtered")))
+            .drop("genres_array", "genres_trimmed", "genres_replaced", "genres_filtered")
+        )
+
+
+        tags_df_grouped = tags_df.fillna({"tag": ""}).groupBy("movieId").agg(collect_list("tag").alias("tag_list"))
+
+        tags_processed = (tags_df_grouped
+            .select("movieId", explode("tag_list").alias("tag"))
+            .filter("tag IS NOT NULL AND tag != ''")
+            .select("movieId", explode(split(lower("tag"), "\\|")).alias("tag_item"))
+            .select("movieId", trim("tag_item").alias("tag_item"))
+            .select("movieId", regexp_replace("tag_item", " ", "_").alias("tag_item"))
+            .filter("tag_item != ''")
+            .select("movieId", concat(lit("tag_"), col("tag_item")).alias("final_tag"))
+            .groupBy("movieId")
+            .agg(sort_array(collect_set("final_tag")).alias("sorted_tags"))
+            .select("movieId", concat_ws(" ", "sorted_tags").alias("tag_clean"))
+        )
+
+        tags_df_final = tags_df_grouped.join(tags_processed, "movieId", "left")
+
+
 
         joined_df = (
             movies_df
-            .join(tags_df_grouped.select("movieId", "tag_clean"), on="movieId", how="left")
+            .join(tags_df_final.select("movieId", "tag_clean"), on="movieId", how="left")
             .fillna({"tag_clean": ""})
         )
-
-        # 对列重命名
+ 
         joined_df = joined_df.select(
             "movieId",
             "title",
@@ -184,30 +200,16 @@ class DataPreprocess:
             "year"
         )
 
-        self.save_df(joined_df, save_file, overwrite)
+        self.save_df(joined_df, save_tags_file, overwrite)
 
 
-    def get_movie_link(self, overwrite=False):
-        """
-        此函数用于 movie信息 & 非训练其他信息，目前只有movielink列：
-        """
-        save_file = f"{self.data_path}/processed/movie_links"
-
-        movies_df = self.load_df("movies").select("movieId")
-        movies_df = movies_df.withColumn('movieLink',concat(lit('https://movielens.org/movies/'), col('movieId').cast('string')))
-
-        # save
-        self.save_df(movies_df, save_file, overwrite)
-
-
-
+ 
 
 def main():
     data_pre = DataPreprocess()
-    # data_pre.merge_other_data(overwrite=False)
-    # data_pre.get_rating_data(overwrite=False)
-    # data_pre.get_movie_train_tags(overwrite=False)
-    data_pre.get_movie_link(overwrite=False)
+    # data_pre.get_user_movie_info(overwrite=1)
+    # data_pre.get_rating_data(overwrite=1)
+    data_pre.get_movie_features(overwrite=1)
 
 if __name__ == "__main__":
     main()
