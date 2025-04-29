@@ -139,6 +139,19 @@ class DataPreprocess:
             .withColumn("year", regexp_extract("title", r"\((\d{4})\)", 1))
             .withColumn("title", regexp_replace("title", r"\s*\(\d{4}\)", ""))
         )
+        # Normalize movie titles：Move (The, An, A) from the end to the beginning
+        movies_df = movies_df.withColumn(
+            "title",
+            when(
+                col("title").rlike(".*,\\s(The|An|A)$"),
+                concat(
+                    regexp_extract("title", r"^(.*),\s(The|An|A)$", 2),  # The/An/A
+                    lit(" "),
+                    regexp_extract("title", r"^(.*),\s(The|An|A)$", 1)  # Main title
+                )
+            ).otherwise(col("title"))
+        )
+
         movies_info = movies_df.withColumn('link',concat(lit('https://movielens.org/movies/'), col('movieId').cast('string')))
 
         movies_info = movies_info.select(
