@@ -10,7 +10,11 @@ data/
 *.csv
 !*.dvc
 !/data/.gitkeep
+<<<<<<< Updated upstream
 .dvc/tmp/
 /data
 .dvc*
 __pycache__/
+=======
+.dvc/tmp/
+>>>>>>> Stashed changes

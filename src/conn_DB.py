@@ -182,17 +182,28 @@ if __name__ == "__main__":
     # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
+<<<<<<< Updated upstream
     # file_path = 'output/movie_similarity_network.csv'
     # local_file = f"{data_path}/{file_path}" 
     # r2.upload_local_file(local_file, file_path)
  
+=======
+    file_path = 'result/user_471_recommendation_and_history.csv'
+    local_file = '/'.join([str(ROOT_DIR), "data", file_path])
+    r2.upload_local_file(local_file, file_path)
+
+>>>>>>> Stashed changes
     # upload pd test
     # df = pd.read_csv(local_file, index_col=0)
     # print(df.head())
     # r2.upload_df_file(df, file_path)
 
     # delete test
+<<<<<<< Updated upstream
     # file_path =  'processed/ratingMovie.csv'
+=======
+    # file_path =  #'test/README.txt'
+>>>>>>> Stashed changes
     # r2.delete_file(file_path)
 
     # list structure test

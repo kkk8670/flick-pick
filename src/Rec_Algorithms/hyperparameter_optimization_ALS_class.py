@@ -33,6 +33,7 @@ def log_caller(func):
         return func(*args, **kwargs)
     return wrapper
 
+
 def cosine_similarity_udf(v1, v2):
     """
     Calculate cosine similarity between two vectors.
@@ -58,7 +59,6 @@ def cosine_similarity_udf(v1, v2):
 
 class Recommendation:
     def __init__(self):
-
         self.data_path = f"{ROOT_DIR}/data"
         self.processed_path = f"{self.data_path }/processed"
         self.result_path = f"{self.data_path }/output"  
@@ -69,7 +69,6 @@ class Recommendation:
                         .getOrCreate()
                     )
         self.spark.sparkContext.setLogLevel("ERROR")
-
 
 
     def setup_environment(self):
@@ -155,7 +154,6 @@ class Recommendation:
         )
 
 
-
     def build_base_als(self):
         """Create base ALS model for parameter optimization."""
         return ALS(
@@ -163,9 +161,9 @@ class Recommendation:
             itemCol="movieId",
             ratingCol="rating",
             coldStartStrategy="drop",
-            rank=10,  
-            maxIter=10,   
-            regParam=0.1   
+            rank=10,  # Base value, will be overridden by ParamGridBuilder
+            maxIter=10,  # Base value, will be overridden by ParamGridBuilder
+            regParam=0.1  # Base value, will be 
         )
 
 
@@ -283,7 +281,6 @@ class Recommendation:
             col("ratings.userId") == user_id
         )
 
- 
         user_tag_features = user_history.join(
             tags_df_transformed,
             "movieId"   
@@ -310,8 +307,6 @@ class Recommendation:
 
     def get_content_similarity(self, user_rec_movies, tags_df_transformed, avg_vector_broadcast):
         print("Step 3: Calculating content similarity scores...")
-
- 
         rec_with_features = user_rec_movies.join(
             tags_df_transformed,
             "movieId"   
@@ -363,7 +358,6 @@ class Recommendation:
  
             # print("final_recs:", final_combined.count())  
             return final_recs, rec_with_score
-        
         except Exception as e:
             print("combine data error:", e)
     
@@ -533,7 +527,6 @@ class Recommendation:
             dup_df.show(n=5)
         else:
             print(f"No duplicated rows found.")
-
 
 
 def main():
