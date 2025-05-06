@@ -25,6 +25,12 @@ launch:
 only generate recommend:
 `bashpython main.py --mode recommend`
 
+run realtime recommend:
+```
+python simulate_ratings.py
+python stream_recommend.py
+```
+
 Only start the Web service:
 bashpython main.py --mode serve
 

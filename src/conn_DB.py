@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
     # list structure test
     r2_path =  "" # "test/"
-    # r2.list_folder(r2_path, 1)   
+    r2.list_folder(r2_path, 1)   
 
     # get file test 
     # r2_file = f"/processed/for_visual_sample.csv" 
@@ -210,5 +210,5 @@ if __name__ == "__main__":
     # r2.download_file(file, f"{data_path}/{file}")
     # download folder test
     r2_folder = ""
-    r2.download_folder(r2_folder, overwrite=False)
+    # r2.download_folder(r2_folder, overwrite=False)
  

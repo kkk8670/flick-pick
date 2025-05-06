@@ -13,3 +13,4 @@ data/
 .dvc/tmp/
 /data
 .dvc*
+__pycache__/

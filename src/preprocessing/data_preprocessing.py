@@ -170,12 +170,12 @@ class DataPreprocess:
                         .otherwise(split(lower("genres"), "\\|")))
             .withColumn("genres_trimmed", 
                         transform("genres_array", lambda x: trim(x)))
-            .withColumn("genres_replaced", 
-                        transform("genres_trimmed", lambda x: regexp_replace(x, " ", "_")))
-            .withColumn("genres_filtered", 
-                        array_distinct(transform("genres_replaced", lambda x: when(length(x) > 0, concat(lit("genre_"), x)))))
+            # .withColumn("genres_replaced", 
+            #             transform("genres_trimmed", lambda x: regexp_replace(x, " ", "_")))
+            # .withColumn("genres_filtered", 
+            #             array_distinct(transform("genres_replaced", lambda x: when(length(x) > 0, concat(lit("genre_"), x)))))
             .withColumn("genres_clean", 
-                        concat_ws(" ", sort_array("genres_filtered")))
+                        concat_ws(" ", sort_array("genres_trimmed")))
             .drop("genres_array", "genres_trimmed", "genres_replaced", "genres_filtered")
         )
 
@@ -187,11 +187,11 @@ class DataPreprocess:
             .filter("tag IS NOT NULL AND tag != ''")
             .select("movieId", explode(split(lower("tag"), "\\|")).alias("tag_item"))
             .select("movieId", trim("tag_item").alias("tag_item"))
-            .select("movieId", regexp_replace("tag_item", " ", "_").alias("tag_item"))
+            # .select("movieId", regexp_replace("tag_item", " ", "_").alias("tag_item"))
             .filter("tag_item != ''")
-            .select("movieId", concat(lit("tag_"), col("tag_item")).alias("final_tag"))
+            # .select("movieId", concat(lit("tag_"), col("tag_item")).alias("tag_item"))
             .groupBy("movieId")
-            .agg(sort_array(collect_set("final_tag")).alias("sorted_tags"))
+            .agg(sort_array(collect_set("tag_item")).alias("sorted_tags"))
             .select("movieId", concat_ws(" ", "sorted_tags").alias("tag_clean"))
         )
 
@@ -215,8 +215,6 @@ class DataPreprocess:
 
         self.save_df(joined_df, save_tags_file, overwrite)
 
-
- 
 
 def main():
     data_pre = DataPreprocess()

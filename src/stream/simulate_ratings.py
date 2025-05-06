@@ -3,12 +3,10 @@
 # @Time 2025/04/13
 
 import os, json, time, random, glob
-from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
-ROOT_DIR = Path(os.getenv('ROOT_DIR'))
-stream_path = ROOT_DIR / "data/streaming_input"
+stream_path = f"{ROOT_DIR}/data/streaming_input"
 
 MAX_KEEP = 10
 DELAY = 3
@@ -23,12 +21,12 @@ def create_user_ratings(i):
         "rating": round(random.uniform(1.0, 5.0), 1),
         "timestamp": int(time.time())
     }
-    # filename = f"{str(stream_path)}/rating_{int(time.time())}.json"
-    filename = f"{str(stream_path)}/rating_{i % 10}.json"
+    filename = f"{str(stream_path)}/rating_{int(time.time())}.json"
+    # filename = f"{str(stream_path)}/rating_{i % 10}.json"
     with open(filename, "w") as f:
         json.dump(rating, f)
     i += 1
-    print(f"写入评分：{rating}")
+    print(f"write score：{rating}")
 
 
 def clean_old_file():
@@ -37,11 +35,12 @@ def clean_old_file():
         for old_file in files[:-MAX_KEEP]:
             os.remove(old_file)
 
+
 def simulate_ratings():
     i = 0
     while True:
         create_user_ratings(i)
-        clean_old_file()
+        clean_old_file()œ
         time.sleep(DELAY)
 
 
@@ -69,4 +68,4 @@ def refresh_old_files():
 
 if __name__ == "__main__":
     simulate_ratings()
-    # refresh_old_files()
+    refresh_old_files()

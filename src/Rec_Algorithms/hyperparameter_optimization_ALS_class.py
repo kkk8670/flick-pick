@@ -6,7 +6,7 @@ from pyspark.ml import Pipeline
 from pyspark.ml.feature import HashingTF, IDF, Tokenizer
 from pyspark.ml.recommendation import ALS
 from pyspark.sql import SparkSession, functions as F
-from pyspark.sql.functions import lit, col, desc, explode, udf, count, coalesce, concat_ws
+from pyspark.sql.functions import lit, col, desc, explode, udf, count, coalesce, concat_ws, transform, split, concat
 from pyspark.sql.types import DoubleType
 from pyspark.ml.tuning import ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
@@ -239,18 +239,14 @@ class Recommendation:
                                 .withColumn("genres", coalesce(self.tags_df["genres"], lit(""))) 
                                 .withColumn("tag", coalesce(self.tags_df["tag"], lit(""))) 
                                 .withColumn("year", coalesce(self.tags_df["year"], lit("")))
-                            )
-        # self.check_dup(movie_features_df)
-
-        movie_features_df = (
-                                movie_features_df  
+                                .withColumn("genres_prefixed", 
+                                            concat_ws(" ", transform(split(col("genres"), " "), lambda x: concat(lit("genres_"), x))))
+                                .withColumn("tag_prefixed", 
+                                            concat_ws(" ", transform(split(col("tag"), " "), lambda x: concat(lit("tag_"), x))))
                                 .withColumn("combined_features", concat_ws(" ", "title", "genres", "tag", "year"))
                                 .where(col("combined_features") != lit(""))  
                                 .select("movieId", "combined_features")
                             )
-
-        # self.check_dup(movie_features_df)
-        # print("1st", movie_features_df.first().asDict())
 
         # TF-IDF pipeline
         tokenizer = Tokenizer(inputCol="combined_features", outputCol="words")
