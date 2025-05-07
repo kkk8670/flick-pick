@@ -497,7 +497,7 @@ class Recommendation:
         tags_df_transformed, hashing_tf = self.get_content_feature_matrix()
         # self.check_dup(tags_df_transformed)
 
-        for user_id in user_ids[:10]:
+        for user_id in user_ids[:]:
             try:
                 tags_df_transformed = self.weighted_recommendations(user_id, best_model, tags_df_transformed, hashing_tf)
             except Exception as e:
