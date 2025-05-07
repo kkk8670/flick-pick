@@ -1,17 +1,19 @@
 import os, sys
 from pathlib import Path
 import numpy as np
+from datetime import datetime
 from dotenv import load_dotenv
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import HashingTF, IDF, Tokenizer
-from pyspark.ml.recommendation import ALS
+from pyspark.ml.recommendation import ALS, ALSModel
 from pyspark.sql import SparkSession, functions as F
-from pyspark.sql.functions import lit, col, desc, explode, udf, count, coalesce, concat_ws, transform, split, concat
+from pyspark.sql.functions import lit, col, desc, explode, udf, count, coalesce, concat_ws, floor, row_number, transform, split, concat
 from pyspark.sql.types import DoubleType
+from pyspark.sql.window import Window
 from pyspark.ml.tuning import ParamGridBuilder
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.tuning import CrossValidator
-from pyspark.ml.recommendation import ALSModel
+from math import exp
 
 import inspect
 from functools import wraps
@@ -99,7 +101,7 @@ class Recommendation:
 
 
     def load_data(self):
-        ratings = "user_movie_rating.csv"
+        ratings = "clean_ratings.csv"
         tags = "movie_train_tags.csv"
 
         self.ratings_df = self.spark.read.csv(f"{self.processed_path}/{ratings}", header=True, inferSchema=True).dropDuplicates()
@@ -107,52 +109,6 @@ class Recommendation:
         self.tags_df = self.spark.read.csv(f"{self.processed_path}/{tags}",
                            header=True,
                            inferSchema=True).dropDuplicates()
-
-
-    def load_data_old(self):
-        """Load ratings, movie, and tag datasets."""
-        # Note: Preserving timestamp field if needed
-        ratings = "clean_ratings.csv"
-        tags = "extra_tags.csv"
-        rating_movie = "rating_movie.csv"
-
-        self.ratings_df = (
-            self.spark.read.csv(f"{self.processed_path}/{ratings}", header=True, inferSchema=True)
-            .select("userId", "movieId", "rating","timestamp")
-            .withColumn("userId", col("userId").cast("int"))
-            .withColumn("movieId", col("movieId").cast("int"))
-            .withColumn("rating", col("rating").cast("float"))
-            .withColumn("timestamp", col("timestamp").cast("int"))
-        )
-
-        # Load movie data with standardized column prefixes
-        self.movie_df = (
-            self.spark.read.csv(f"{self.processed_path}/{rating_movie}",
-                           header=True,
-                           inferSchema=True)
-            .select(
-                col("movieId").alias("m_movieId"),
-                col("title").alias("m_title"),
-                col("genres").alias("m_genres"),
-                col("movieLink").alias("m_movieLink"),
-                col("titleClean").alias("m_titleClean"),
-                col("year").alias("m_year")
-            )
-            .withColumn("m_movieId", col("m_movieId").cast("int"))
-        )
-
-        # Load tag data with standardized column prefixes
-        self.tags_df = (
-            self.spark.read.csv(f"{self.processed_path}/{tags}",
-                           header=True,
-                           inferSchema=True)
-            .select(
-                col("movieId").alias("t_movieId"),
-                col("tags_str").alias("t_tags_str")
-            )
-            .withColumn("t_movieId", col("t_movieId").cast("int"))
-        )
-
 
     def build_base_als(self):
         """Create base ALS model for parameter optimization."""
@@ -212,17 +168,40 @@ class Recommendation:
 
 
     def get_model(self, force_train=False):
-
         model_path = f"{ROOT_DIR}/models/als_recommendation"
+
+        # 为每个 user 的评分记录添加时间顺序编号
+        window_spec = Window.partitionBy("userId").orderBy("timestamp")
+
+        df_with_row = self.ratings_df.withColumn("row_num", row_number().over(window_spec))
+
+        # 计算每个 user 的评分数量
+        user_counts = df_with_row.groupBy("userId").count().withColumnRenamed("count", "total_ratings")
+
+        # 加入每条记录在用户下的总评分数
+        df_with_total = df_with_row.join(user_counts, on="userId")
+
+        # 设置训练阈值：80% 留在训练集
+        df_labeled = df_with_total.withColumn(
+            "is_train",
+            (col("row_num") <= floor(col("total_ratings") * 0.8))
+        )
+
+        # 拆分
+        train_ratings_df = df_labeled.filter("is_train = true").drop("row_num", "total_ratings", "is_train")
+        test_ratings_df = df_labeled.filter("is_train = false").drop("row_num", "total_ratings", "is_train")
+
+        self.test_df = test_ratings_df
 
         if os.path.exists(model_path) and not force_train:
             print("Loading existing model")
             best_model = ALSModel.load(model_path)
-        else:
-            print("training new model")
-            train_ratings_df, _ = self.ratings_df.randomSplit([0.8, 0.2], seed=42)
-            best_model = self.hyperparameter_optimization(train_ratings_df)
-            best_model.write().overwrite().save(model_path)
+            return best_model
+
+        print("Training new model")
+        
+        best_model = self.hyperparameter_optimization(train_ratings_df)
+        best_model.write().overwrite().save(model_path)
 
         return best_model
 
@@ -307,6 +286,7 @@ class Recommendation:
 
     def get_content_similarity(self, user_rec_movies, tags_df_transformed, avg_vector_broadcast):
         print("Step 3: Calculating content similarity scores...")
+
         rec_with_features = user_rec_movies.join(
             tags_df_transformed,
             "movieId"   
@@ -342,28 +322,32 @@ class Recommendation:
 
         rec_with_score = rec_normalized.withColumn(
             "final_score",
-            0.7 * col("norm_rating") + 0.3 * col("content_similarity")
+            0.6 * col("norm_rating") + 0.2 * col("content_similarity") + 0.2 * col("recency_score")
         ).cache()
             
         # print("rec_with_score 1st", rec_with_score.first().asDict())
         # print("self.tags_df 1st", self.tags_df.first().asDict())
         try:
+            # # 排序 + 去重，确保保留每个 user/movie/rating 组合的最佳推荐项
+            rec_with_score = rec_with_score.orderBy(col("final_score").desc())
+            rec_with_score = rec_with_score.dropDuplicates(["userId", "movieId"])
+
             final_recs = rec_with_score.select(
                 col("userId"),
                 col("movieId"),
                 col("rating"),
                 col("content_similarity").alias("similarity"),   
-                col("final_score"),   
+                col("final_score"),
             )
  
             # print("final_recs:", final_combined.count())  
             return final_recs, rec_with_score
+        
         except Exception as e:
             print("combine data error:", e)
     
 
     def export_result(self, output_path, final_recs, overwrite=True):
-        
         if not overwrite and (
                 os.path.exists(output_path) or 
                 os.path.exists(f"{output_path}.csv")
@@ -394,10 +378,14 @@ class Recommendation:
         try:
             print(f"Generating hybrid recommendations for user {user_id}...")
 
+            # 获取用户训练集最大年份
+            user_train_df = self.ratings_df.filter((col("userId") == user_id))
+            max_train_timestamp = user_train_df.select("timestamp").agg(F.max("timestamp")).collect()[0][0]
+            max_train_year = datetime.fromtimestamp(max_train_timestamp).year
+
             # Step 1: Get ALS reçcommendations
             user_rec_movies = self.get_ALS_recommendations(best_als_model, user_id)
             # self.check_dup(user_rec_movies)
-
 
             # Step 2: Build user preference profile
             user_tag_features, avg_vector_broadcast = self.get_user_profile(user_id, tags_df_transformed, hashing_tf)
@@ -406,6 +394,40 @@ class Recommendation:
             # Step 3: Calculate content similarity scores
             rec_with_similarity = self.get_content_similarity(user_rec_movies, tags_df_transformed, avg_vector_broadcast)
             
+            # Step 3.5: 时间限制 + 加入时序权重（基于用户打分时间）
+
+            # 限制推荐电影年份在训练集最大年份 + 1 年内
+            rec_with_similarity = rec_with_similarity.join(
+                self.tags_df.select("movieId", "year"),
+                on="movieId",
+                how="left"
+            ).filter(
+                col("year").isNotNull() & (col("year") <= max_train_year + 1)
+            )
+
+            # 取用户对该推荐电影打分的时间戳（join 原始评分数据）
+            rec_with_similarity = rec_with_similarity.join(
+                self.ratings_df.select("userId", "movieId", "timestamp"),
+                on=["userId", "movieId"],
+                how="left"
+            )
+
+            # 定义时序衰减函数（打分时间越接近 max_train_timestamp，权重越高）
+            def calc_recency_score(ts, max_ts):
+                try:
+                    if ts is None:
+                        return 0.0
+                    delta_days = (max_ts - ts) / (60 * 60 * 24)
+                    return float(exp(-0.003 * delta_days))  # 可以调整衰减系数
+                except:
+                    return 0.0
+
+            recency_udf = udf(lambda ts: calc_recency_score(ts, max_train_timestamp), DoubleType())
+
+            rec_with_similarity = rec_with_similarity.withColumn(
+                "recency_score",
+                recency_udf(col("timestamp"))
+            )
 
             # Step 4: Hybrid scoring
             final_recs, rec_with_score = self.get_final_combined(rec_with_similarity, user_id)
@@ -415,12 +437,21 @@ class Recommendation:
             output_path = f"{self.result_path}/user_{user_id}_recommendation"
             self.export_result(output_path, final_recs)
 
+            # 提取 Top-K 推荐的 movieId（推荐列表已经去重和排序）
+            predicted_movie_ids = final_recs.orderBy(col("final_score").desc()) \
+                                            .select("movieId") \
+                                            .limit(10) \
+                                            .rdd.flatMap(lambda x: x).collect()
+
+            # 计算 Precision@10（验证用 self.test_df）
+            precision = self.precision_at_k_for_user(user_id, predicted_movie_ids, self.test_df, k=10)
+
             # # Clean cached data
             rec_with_score.unpersist()
             if user_tag_features:
                 user_tag_features.unpersist()
 
-            return tags_df_transformed 
+            return tags_df_transformed, precision
 
         except Exception as e:
             print(f"Recommendation generation failed for user {user_id}: {str(e)}")
@@ -486,7 +517,7 @@ class Recommendation:
 
 
     def generate_recommendations(self, best_model):
-        user_ids = self.ratings_df.select("userId").distinct().rdd.map(
+        user_ids = self.test_df.select("userId").distinct().rdd.map(
             lambda row: row["userId"]
         ).collect()
         print(f"Generating recommendations for {len(user_ids)} users...")
@@ -497,13 +528,22 @@ class Recommendation:
         tags_df_transformed, hashing_tf = self.get_content_feature_matrix()
         # self.check_dup(tags_df_transformed)
 
-        for user_id in user_ids[:10]:
+        total_precision = 0.0
+        valid_user_count = 0
+        k = 10
+
+        for user_id in user_ids[67:73]:
             try:
-                tags_df_transformed = self.weighted_recommendations(user_id, best_model, tags_df_transformed, hashing_tf)
+                tags_df_transformed, precision = self.weighted_recommendations(user_id, best_model, tags_df_transformed, hashing_tf)
+                total_precision += precision
+                valid_user_count += 1
             except Exception as e:
                 print(f"Recommendation failed for user {user_id}, skipping: {str(e)}")
                 continue
-     
+        
+        if valid_user_count > 0:
+            avg_precision = total_precision / valid_user_count
+            print(f"\n==== Average Precision@{k} over {valid_user_count} users: {avg_precision:.4f} ====")
 
         if tags_df_transformed:
             self.export_movie_similarity_network(tags_df_transformed)
@@ -528,6 +568,36 @@ class Recommendation:
         else:
             print(f"No duplicated rows found.")
 
+    def precision_at_k_for_user(self, user_id, predicted_movie_ids, test_df, k=10):
+        print(f"\n==== User {user_id} ====")
+
+        # 用户 test data 中真实评分记录
+        user_test_df = test_df.filter((col("userId") == user_id))
+
+        # 获取用户 test 中喜欢的电影（评分 ≥ 3.0）
+        relevant_df = user_test_df.filter(col("rating") >= 3.0)
+        relevant_movie_ids = relevant_df.select("movieId").rdd.flatMap(lambda x: x).collect()
+
+        # 命中的 movieId（推荐的 ∩ 喜欢的）
+        hit_movie_ids = list(set(predicted_movie_ids) & set(relevant_movie_ids))
+
+        # 打印命中的并评分合格的电影
+        print(f"\n[Hit relevant movies among Top {k}]: {hit_movie_ids}")
+        if hit_movie_ids:
+            print("\n[Matching entries in test data]:")
+            relevant_df.filter(col("movieId").isin(hit_movie_ids)).show()
+
+        # Precision = 命中数 / k
+        precision = len(hit_movie_ids) / k
+        print(f"[Precision@{k} for user {user_id}]: {precision:.1f}")
+
+        output_path = f"{self.result_path}/user_{user_id}_test_data"
+        user_test_df.coalesce(1).write.option("header", True).mode("overwrite").csv(output_path)
+        save_to_csv(output_path)
+        print(f"[Saved test data for user {user_id}]: {output_path}")
+        
+        return precision
+
 
 def main():
     """Entry point for the recommendation system."""
@@ -535,7 +605,7 @@ def main():
     # rc.setup_environment()
     rc.load_data()
     
-    best_model = rc.get_model(force_train=False)
+    best_model = rc.get_model(force_train=True)
 
     rc.generate_recommendations(best_model)
 
@@ -544,4 +614,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
