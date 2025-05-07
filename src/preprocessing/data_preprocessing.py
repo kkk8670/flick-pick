@@ -70,7 +70,8 @@ class DataPreprocess:
         """
         ratings_df, tags_df = self.load_df("ratings"), self.load_df("tags")
 
-        save_file = f"{self.data_path}/output/user_movie_info"
+        info_file = f"{self.data_path}/output/user_movie_info"
+        rating_file = f"{self.data_path}/processed/user_movie_rating"
 
         # join timestamp with full outer join
         joined_df = (
@@ -102,21 +103,8 @@ class DataPreprocess:
             .withColumn("tag_date", from_unixtime(col("tagTimestamp"), "yyyy-MM-dd"))
 
         # save
-        self.save_df(joined_df, save_file, overwrite)
-
- 
-    def get_rating_data(self, overwrite):
-        """
-        for primany key = userid+movieid   
-        als with cols : movieid，userid and rating
-        """
-        
-        save_file = f"{self.data_path}/processed/user_movie_rating"
-     
-        ratings_df = self.load_df("ratings").select("userId", "movieId", "rating")
-       
-        # save
-        self.save_df(ratings_df, save_file, overwrite)
+        self.save_df(joined_df, info_file, overwrite)
+        self.save_df(ratings_df, rating_file, overwrite) 
 
 
     def check_joined_null_tag(self, joined_df):
@@ -218,8 +206,7 @@ class DataPreprocess:
 
 def main():
     data_pre = DataPreprocess()
-    # data_pre.get_user_movie_info(overwrite=1)
-    # data_pre.get_rating_data(overwrite=1)
+    data_pre.get_user_movie_info(overwrite=1)
     data_pre.get_movie_features(overwrite=1)
 
 if __name__ == "__main__":

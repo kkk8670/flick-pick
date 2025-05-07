@@ -34,7 +34,7 @@ class R2Client:
             return False
 
 
-    def list_folder(self, prefix="", recursive=True):
+    def list_folder(self, prefix="", recursive=True, exclude=""):
         """list all data structure"""
         print(f"Listing datasets under: '{prefix}'")
 
@@ -58,7 +58,8 @@ class R2Client:
                 print("Files:")
                 for obj in page["Contents"]:
                     if obj["Key"] != prefix:
-                        print(" -", obj["Key"])
+                        if not exclude or exclude not in obj["Key"]:
+                            print(" -", obj["Key"])
                         files.append(obj["Key"])
         return files 
 
@@ -177,38 +178,28 @@ if __name__ == "__main__":
     data_path = f"{root_path}/data"
 
     # upload folder test
-    # local_folder = f"{data_path}/raw"
-    # remote_folder = "raw"
+    # local_folder = f"{data_path}/output"
+    # remote_folder = "output"
     # r2.upload_folder(local_folder, remote_folder)
 
     # upload local file test
-<<<<<<< Updated upstream
     # file_path = 'output/movie_similarity_network.csv'
     # local_file = f"{data_path}/{file_path}" 
     # r2.upload_local_file(local_file, file_path)
  
-=======
-    file_path = 'result/user_471_recommendation_and_history.csv'
-    local_file = '/'.join([str(ROOT_DIR), "data", file_path])
-    r2.upload_local_file(local_file, file_path)
-
->>>>>>> Stashed changes
     # upload pd test
     # df = pd.read_csv(local_file, index_col=0)
     # print(df.head())
     # r2.upload_df_file(df, file_path)
 
     # delete test
-<<<<<<< Updated upstream
     # file_path =  'processed/ratingMovie.csv'
-=======
-    # file_path =  #'test/README.txt'
->>>>>>> Stashed changes
     # r2.delete_file(file_path)
 
     # list structure test
     r2_path =  "" # "test/"
-    r2.list_folder(r2_path, 1)   
+    exclude = "user_recommend_result"
+    r2.list_folder(r2_path, 1, exclude)   
 
     # get file test 
     # r2_file = f"/processed/for_visual_sample.csv" 

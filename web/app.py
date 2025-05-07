@@ -1,3 +1,8 @@
+#!/usr/bin/env python
+# @Auther liukun
+# @Time 2025/04/23
+
+
 import os, sys, json, logging, base64, traceback 
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for
@@ -27,10 +32,10 @@ from stream.stream_recommend_engine import (
 
 app = Flask(__name__)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-app.logger.setLevel(logging.DEBUG)
+app.logger.setLevel(logging.INFO)
 
 
 # Configuration
@@ -68,8 +73,9 @@ def get_movie_info(movie_id):
 def get_available_users():
     """Get all available user IDs"""
     users = []
-    if os.path.exists(RESULT_DIR):
-        for filename in os.listdir(RESULT_DIR):
+    USER_DIR = f"{RESULT_DIR}/user_recommend_result"
+    if os.path.exists(USER_DIR):
+        for filename in os.listdir(USER_DIR):
             # app.logger.info(f"filename: {filename}")
             if filename.startswith("user_") and filename.endswith("_recommendation.csv"):
                 # app.logger.info(f"choosen filename: {filename}")
@@ -123,7 +129,7 @@ def get_user_stats(user_id):
 
 def get_user_recommendations(user_id):
     """Get recommendations for a specific user"""
-    file_path = f"{RESULT_DIR}/user_{user_id}_recommendation.csv" 
+    file_path = f"{RESULT_DIR}/user_recommend_result/user_{user_id}_recommendation.csv" 
     if os.path.exists(file_path):
         df = pd.read_csv(file_path)
         # Add movie title and other information
@@ -480,6 +486,7 @@ def index():
     
     # Generate network graph
     graph_json = generate_network_graph()
+    # app.logger.info(f"graph_json: {graph_json}")
     
     return render_template('dashboard.html', 
                           users=users,
@@ -488,6 +495,25 @@ def index():
                           wordcloud_img=wordcloud_img,
                           graph_json=graph_json)
 
+
+@app.route('/debug-graph')
+def debug_graph():
+    graph_json = generate_network_graph()
+    return f"""
+    <html>
+    <head>
+        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    </head>
+    <body>
+        <div id="graph"></div>
+        <script>
+            const graphData = {graph_json};
+            console.log(graphData);
+            Plotly.newPlot('graph', graphData.data, graphData.layout);
+        </script>
+    </body>
+    </html>
+    """
 
 @app.route('/api/recommendations/<user_id>')
 def api_recommendations(user_id):
@@ -510,9 +536,10 @@ def api_realtime_recommendations():
     user_id = request.args.get('user_id', type=int)
     if user_id:
         recommendations = get_realtime_recommendations(user_id, 10, spark, model, movies)
+        app.logger.info(f"num of rec 1111:: {len(recommendations)}")
     else: 
         recommendations = get_latest_recommendations_from_csv()
-    
+        app.logger.info(f"num of rec 2222:: {len(recommendations)}")
     return jsonify(recommendations)
 
  
@@ -520,6 +547,7 @@ def api_realtime_recommendations():
 def api_user_realtime_recommendations(user_id):
  
     recommendations = get_realtime_recommendations(user_id, 10, spark, model, movies)
+    app.logger.info(f"num of rec 3333:: {len(recommendations)}")
     return jsonify(recommendations)
 
 def start_background_streaming():

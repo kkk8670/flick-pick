@@ -3,7 +3,7 @@
 # @Time 2025/04/13
 
 import os, json, time, random, glob
-from pathlib import Path
+import pandas as pd
 from dotenv import load_dotenv
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, explode
@@ -11,11 +11,11 @@ from pyspark.ml.recommendation import ALSModel
 
 
 load_dotenv()
-ROOT_DIR = Path(os.getenv('ROOT_DIR'))
-model_path = str(Path(os.getenv('ROOT_DIR')) / "models/als_recommendation" ) 
-movie_path = str(Path(os.getenv('ROOT_DIR')) / "data/raw/ml-latest-small/movies.csv")
-input_path = str(Path(os.getenv('ROOT_DIR')) / "data/streaming_input/")
-output_path = str(Path(os.getenv('ROOT_DIR')) / "data/output/realtime_streaming_recommend.csv")
+ROOT_DIR = os.getenv('ROOT_DIR')
+model_path =    f"{ROOT_DIR}/models/als_recommendation"  
+movie_path = f"{ROOT_DIR}/data/raw/ml-latest-small/movies.csv" 
+input_path = f"{ROOT_DIR}/data/streaming_input/" 
+output_path = f"{ROOT_DIR}/data/output/realtime_streaming_recommend.csv"
 
 def init_spark():
     spark = SparkSession.builder \
@@ -31,7 +31,7 @@ def load_model_and_data(spark):
     return model, movies
 
  
-def process_batch(batch_df, batch_id):
+def process_batch(batch_df, batch_id, model, movies, spark):
     if batch_df.count() == 0:
         print(f"[batch {batch_id}] empty, skipping.")
         return
@@ -81,8 +81,9 @@ def get_realtime_recommendations(user_id, top_n=10, spark=None, model=None, movi
     recs = model.recommendForUserSubset(user_df, top_n)
     recs = recs.selectExpr("userId", "explode(recommendations) as rec") \
                .select("userId", col("rec.movieId"), col("rec.rating"))
-    joined = recs.join(movies, on="movieId", how="left")
-    return joined.toPandas().to_dict(orient="records")
+    joined = recs.join(movies, on="movieId", how="left").toPandas()
+    df = joined.sort_values(by="rating", ascending=False).head(10)
+    return df.to_dict(orient="records")
 
 
 def get_latest_recommendations_from_csv(user_id=None):
@@ -90,11 +91,11 @@ def get_latest_recommendations_from_csv(user_id=None):
         return []
     
     df = pd.read_csv(output_path)
-    if user_id is not None:
+    if user_id:
         df = df[df['userId'] == user_id]
-    
+    df = df.sort_values(by="rating", ascending=False).head(10)  
     return df.to_dict(orient="records")
-
+     
 
 def main():
     spark = init_spark()

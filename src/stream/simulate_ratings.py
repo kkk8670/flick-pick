@@ -2,10 +2,13 @@
 # @Auther liukun
 # @Time 2025/04/13
 
+ 
+
 import os, json, time, random, glob
 from dotenv import load_dotenv
 
 load_dotenv()
+ROOT_DIR = os.getenv('ROOT_DIR')
 stream_path = f"{ROOT_DIR}/data/streaming_input"
 
 MAX_KEEP = 10
@@ -40,7 +43,7 @@ def simulate_ratings():
     i = 0
     while True:
         create_user_ratings(i)
-        clean_old_file()œ
+        clean_old_file()
         time.sleep(DELAY)
 
 

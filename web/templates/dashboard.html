@@ -181,7 +181,7 @@
                             </div>
                         </div>
 
-                        <!-- Grid View (Default) -->
+                        <!-- Grid View (Hidden by Default) -->
                         <div id="grid-view" class="recommendations-display" style="display: none;">
                             <div class="row row-cols-1 row-cols-md-3 g-4" id="recommendations-container">
                                 {% for movie in recommendations %}
@@ -210,7 +210,7 @@
                             </div>
                         </div>
 
-                        <!-- List View (Hidden by default) -->
+                        <!-- List View (Default) -->
                         <div id="list-view" class="recommendations-display list-view">
                             <div class="list-group" id="list-recommendations-container">
                                 {% for movie in recommendations %}
@@ -298,15 +298,15 @@
                         <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Movie Similarity Network</h5>
                     </div>
                     <div class="card-body">
-                        {% if graph_json %}
-                        <div class="network-graph-container">
-                            <div id="network-graph"></div>
+                        <div id="network-graph-container">
+                            <div id="network-graph">
+                                {% if not graph_json %}
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> No network graph data available.
+                                </div>
+                                {% endif %}
+                            </div>
                         </div>
-                        {% else %}
-                        <div class="alert alert-warning">
-                            <i class="bi bi-exclamation-triangle"></i> No network graph data available.
-                        </div>
-                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -322,21 +322,40 @@
     {% if graph_json %}
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            const graphData = JSON.parse('{{ graph_json|tojson|safe }}');
-            Plotly.newPlot('network-graph', graphData.data, graphData.layout);
-
-            // Resize graph when window is resized
-            window.addEventListener('resize', function () {
-                Plotly.relayout('network-graph', {});
-            });
-            limitRecommendations('10');
-
-            updateUserStatsAsync('{{ selected_user }}');
-
-            initRecommendationSystem();
+            try {
+                const graphData = {{ graph_json|safe }};
+                console.log("Graph data:", graphData);  
+                Plotly.newPlot('network-graph', graphData.data, graphData.layout);
+                
+                window.addEventListener('resize', function () {
+                    Plotly.relayout('network-graph', {});
+                });
+            } catch (e) {
+                console.error("Error rendering network graph:", e);
+                document.getElementById('network-graph').innerHTML = 
+                    '<div class="alert alert-danger">Error rendering network graph: ' + e.message + '</div>';
+            }
         });
     </script>
     {% endif %}
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+ 
+            initRecommendationSystem();
+ 
+            setTimeout(() => {
+                const countSelect = document.getElementById("count-select");
+                if (countSelect) {
+                    limitRecommendations(countSelect.value);
+                } else {
+                    limitRecommendations(10);  
+                }
+            }, 100);
+
+            updateUserStatsAsync('{{ selected_user }}');
+        });
+    </script>
 
     <script>
         async function updateUserStatsAsync(userId) {
@@ -432,16 +451,16 @@
         // Limit number of visible recommendations
         function limitRecommendations(count) {
             const containers = [
-                document.getElementById('recommendations-container'),
-                document.getElementById('list-recommendations-container'),
-                document.getElementById('carousel-recommendations-container')
+                document.querySelector('#grid-view .row'), // Grid view container
+                document.querySelector('#list-view .list-group'), // List view container
+                document.querySelector('#carousel-view .carousel-inner') // Carousel view container
             ];
 
             containers.forEach(container => {
                 if (!container) return;
 
                 const items = Array.from(container.getElementsByClassName('movie-item'));
-
+                
                 items.forEach((item, index) => {
                     if (count === 'all' || index < parseInt(count)) {
                         item.style.display = '';
@@ -450,6 +469,8 @@
                     }
                 });
             });
+    
+            console.log(`Limited recommendations to: ${count}`);
         }
 
         // Switch between view modes (grid, list, carousel)

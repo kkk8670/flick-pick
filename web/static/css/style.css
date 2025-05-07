@@ -47,6 +47,10 @@ body {
     background-color: var(--secondary-color);
 }
 
+.btn-primary:hover{
+    background-color: var(--secondary-color);
+}
+
 .form-check-input:checked {
     background-color: var(--secondary-color);
     border-color: var(--secondary-color);
@@ -173,6 +177,16 @@ body {
     gap: 15px;
     margin-bottom: 10px;
     flex-wrap: wrap;
+}
+
+.bg-success {
+    --bs-bg-opacity: 1;
+    background-color: var(--primary-color) !important;
+}
+
+.bg-primary {
+    --bs-bg-opacity: 1;
+    background-color: var(--accent-color) !important;
 }
 
 .recommendation-count-selector {

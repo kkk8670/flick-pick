@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# @Auther maoweining, liqianshu, liukun
+
 import os, sys
 from pathlib import Path
 import numpy as np
@@ -101,7 +104,7 @@ class Recommendation:
 
 
     def load_data(self):
-        ratings = "clean_ratings.csv"
+        ratings = "user_movie_rating.csv"
         tags = "movie_train_tags.csv"
 
         self.ratings_df = self.spark.read.csv(f"{self.processed_path}/{ratings}", header=True, inferSchema=True).dropDuplicates()
@@ -170,24 +173,24 @@ class Recommendation:
     def get_model(self, force_train=False):
         model_path = f"{ROOT_DIR}/models/als_recommendation"
 
-        # 为每个 user 的评分记录添加时间顺序编号
+        # Add a chronological number to each user's rating record
         window_spec = Window.partitionBy("userId").orderBy("timestamp")
 
         df_with_row = self.ratings_df.withColumn("row_num", row_number().over(window_spec))
 
-        # 计算每个 user 的评分数量
+        # Calculate the number of ratings per user
         user_counts = df_with_row.groupBy("userId").count().withColumnRenamed("count", "total_ratings")
 
-        # 加入每条记录在用户下的总评分数
+        # Add the total rating score of each record under users
         df_with_total = df_with_row.join(user_counts, on="userId")
 
-        # 设置训练阈值：80% 留在训练集
+        # Set training threshold: 80% Leave in training set
         df_labeled = df_with_total.withColumn(
             "is_train",
             (col("row_num") <= floor(col("total_ratings") * 0.8))
         )
 
-        # 拆分
+        # broken up inseparate items
         train_ratings_df = df_labeled.filter("is_train = true").drop("row_num", "total_ratings", "is_train")
         test_ratings_df = df_labeled.filter("is_train = false").drop("row_num", "total_ratings", "is_train")
 
@@ -328,7 +331,7 @@ class Recommendation:
         # print("rec_with_score 1st", rec_with_score.first().asDict())
         # print("self.tags_df 1st", self.tags_df.first().asDict())
         try:
-            # # 排序 + 去重，确保保留每个 user/movie/rating 组合的最佳推荐项
+            # Sorting + de-emphasizing to ensure that the best recommendations are retained for each user/movie/rating combination
             rec_with_score = rec_with_score.orderBy(col("final_score").desc())
             rec_with_score = rec_with_score.dropDuplicates(["userId", "movieId"])
 
@@ -378,7 +381,7 @@ class Recommendation:
         try:
             print(f"Generating hybrid recommendations for user {user_id}...")
 
-            # 获取用户训练集最大年份
+            # Get the maximum year of the user's training set
             user_train_df = self.ratings_df.filter((col("userId") == user_id))
             max_train_timestamp = user_train_df.select("timestamp").agg(F.max("timestamp")).collect()[0][0]
             max_train_year = datetime.fromtimestamp(max_train_timestamp).year
@@ -394,9 +397,9 @@ class Recommendation:
             # Step 3: Calculate content similarity scores
             rec_with_similarity = self.get_content_similarity(user_rec_movies, tags_df_transformed, avg_vector_broadcast)
             
-            # Step 3.5: 时间限制 + 加入时序权重（基于用户打分时间）
+            # Step 3.5: Time constraints + inclusion of temporal weights (based on user scoring time)
 
-            # 限制推荐电影年份在训练集最大年份 + 1 年内
+            # Limit the year of recommended movies to the maximum year of the training set + 1 year
             rec_with_similarity = rec_with_similarity.join(
                 self.tags_df.select("movieId", "year"),
                 on="movieId",
@@ -405,20 +408,20 @@ class Recommendation:
                 col("year").isNotNull() & (col("year") <= max_train_year + 1)
             )
 
-            # 取用户对该推荐电影打分的时间戳（join 原始评分数据）
+            # Take the timestamp of the user's rating of the recommended movie (join the original rating data)
             rec_with_similarity = rec_with_similarity.join(
                 self.ratings_df.select("userId", "movieId", "timestamp"),
                 on=["userId", "movieId"],
                 how="left"
             )
 
-            # 定义时序衰减函数（打分时间越接近 max_train_timestamp，权重越高）
+            # Define the temporal decay function (the closer the scoring time is to max_train_timestamp, the higher the weight)
             def calc_recency_score(ts, max_ts):
                 try:
                     if ts is None:
                         return 0.0
                     delta_days = (max_ts - ts) / (60 * 60 * 24)
-                    return float(exp(-0.003 * delta_days))  # 可以调整衰减系数
+                    return float(exp(-0.003 * delta_days))  # adjusted
                 except:
                     return 0.0
 
@@ -434,16 +437,16 @@ class Recommendation:
             # self.check_dup(rec_with_similarity)
 
             # save
-            output_path = f"{self.result_path}/user_{user_id}_recommendation"
+            output_path = f"{self.result_path}/user_recommend_result/user_{user_id}_recommendation"
             self.export_result(output_path, final_recs)
 
-            # 提取 Top-K 推荐的 movieId（推荐列表已经去重和排序）
+            # Extract movieId of Top-K recommendations (recommendation list is de-weighted and sorted)
             predicted_movie_ids = final_recs.orderBy(col("final_score").desc()) \
                                             .select("movieId") \
                                             .limit(10) \
                                             .rdd.flatMap(lambda x: x).collect()
 
-            # 计算 Precision@10（验证用 self.test_df）
+            # Calculate Precision@10 (validate with self.test_df)
             precision = self.precision_at_k_for_user(user_id, predicted_movie_ids, self.test_df, k=10)
 
             # # Clean cached data
@@ -533,8 +536,7 @@ class Recommendation:
         valid_user_count = 0
         k = 10
 
-        for user_id in user_ids[:]:
- 
+        for user_id in user_ids[:10]:
             try:
                 tags_df_transformed, precision = self.weighted_recommendations(user_id, best_model, tags_df_transformed, hashing_tf)
                 total_precision += precision
@@ -573,23 +575,23 @@ class Recommendation:
     def precision_at_k_for_user(self, user_id, predicted_movie_ids, test_df, k=10):
         print(f"\n==== User {user_id} ====")
 
-        # 用户 test data 中真实评分记录
+        # Real rating records in user test data
         user_test_df = test_df.filter((col("userId") == user_id))
 
-        # 获取用户 test 中喜欢的电影（评分 ≥ 3.0）
+        # Get favorite movies in user test (rating ≥ 3.0)
         relevant_df = user_test_df.filter(col("rating") >= 3.0)
         relevant_movie_ids = relevant_df.select("movieId").rdd.flatMap(lambda x: x).collect()
 
-        # 命中的 movieId（推荐的 ∩ 喜欢的）
+        # Hit movieId (recommended ∩ favorite)
         hit_movie_ids = list(set(predicted_movie_ids) & set(relevant_movie_ids))
 
-        # 打印命中的并评分合格的电影
+        # Print hit and score qualified movies
         print(f"\n[Hit relevant movies among Top {k}]: {hit_movie_ids}")
         if hit_movie_ids:
             print("\n[Matching entries in test data]:")
             relevant_df.filter(col("movieId").isin(hit_movie_ids)).show()
 
-        # Precision = 命中数 / k
+        # Precision = number of hits / k
         precision = len(hit_movie_ids) / k
         print(f"[Precision@{k} for user {user_id}]: {precision:.1f}")
 
@@ -607,7 +609,7 @@ def main():
     # rc.setup_environment()
     rc.load_data()
     
-    best_model = rc.get_model(force_train=True)
+    best_model = rc.get_model(force_train=False)
 
     rc.generate_recommendations(best_model)
 
